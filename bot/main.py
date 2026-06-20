@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import logging
@@ -24,11 +25,15 @@ def _is_authorized(update: Update) -> bool:
 
 
 def _get_base_url() -> str:
-    for env_var in ("RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN"):
-        val = os.getenv(env_var)
+    for var in ("RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN"):
+        val = os.getenv(var)
         if val:
             return val if val.startswith("http") else f"https://{val}"
     return os.getenv("BASE_URL", f"http://localhost:{PORT}")
+
+
+def _calendar_connected() -> bool:
+    return bool(os.getenv("GOOGLE_TOKEN_JSON")) or os.path.exists("google_token.json")
 
 
 # ── Commandes Telegram ─────────────────────────────────────────────────────────
@@ -47,17 +52,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• _\"Météo ?\"_\n\n"
         f"📅 Google Calendar : {cal}\n\n"
         "Commandes :\n"
-        "/agenda — agenda du jour\n"
-        "/taches — tâches en cours\n"
-        "/notes — tes notes\n"
-        "/briefing — briefing maintenant\n"
+        "/agenda · /taches · /notes · /briefing\n"
         "/connecter\\_calendar — connecter Google Calendar",
         parse_mode="Markdown",
     )
-
-
-def _calendar_connected() -> bool:
-    return bool(os.getenv("GOOGLE_TOKEN_JSON")) or os.path.exists("google_token.json")
 
 
 async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -67,10 +65,8 @@ async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_T
     if not client_id:
         await update.message.reply_text("❌ GOOGLE_CLIENT_ID manquant dans les variables d'environnement.")
         return
-
     base_url = _get_base_url()
     redirect_uri = f"{base_url}/oauth/callback"
-
     from urllib.parse import urlencode
     auth_url = "https://accounts.google.com/o/oauth2/auth?" + urlencode({
         "response_type": "code",
@@ -80,12 +76,9 @@ async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_T
         "access_type": "offline",
         "prompt": "consent",
     })
-
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Connecter Google Calendar", url=auth_url)]])
     await update.message.reply_text(
-        "Clique sur le bouton ci-dessous :\n"
-        "→ Connecte-toi avec Google\n"
-        "→ Reviens ici automatiquement ✅",
+        "Clique sur le bouton → connecte-toi avec Google → reviens automatiquement ✅",
         reply_markup=keyboard,
     )
 
@@ -133,36 +126,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["history"] = history[-12:]
         await dispatch(action, update, context)
     except Exception as e:
-        logger.error(f"Erreur message : {e}", exc_info=True)
+        logger.error(f"Erreur : {e}", exc_info=True)
         await update.message.reply_text(f"⚠️ Erreur : {e}")
 
 
 # ── Routes web ─────────────────────────────────────────────────────────────────
 
 async def handle_telegram_webhook(request: web.Request) -> web.Response:
-    """Reçoit les mises à jour Telegram via webhook."""
     try:
         data = await request.json()
         update = Update.de_json(data, _telegram_app.bot)
         await _telegram_app.process_update(update)
     except Exception as e:
-        logger.error(f"Erreur webhook Telegram : {e}")
+        logger.error(f"Erreur webhook : {e}")
     return web.Response(text="OK")
 
 
 async def oauth_callback(request: web.Request) -> web.Response:
-    """Reçoit le code OAuth Google et échange contre un token."""
     code = request.rel_url.query.get("code")
     error = request.rel_url.query.get("error")
-
     if error or not code:
         return web.Response(text=f"❌ Erreur : {error or 'code manquant'}", content_type="text/html")
-
     try:
         from google_auth_oauthlib.flow import Flow
         base_url = _get_base_url()
         redirect_uri = f"{base_url}/oauth/callback"
-
         flow = Flow.from_client_config(
             {"web": {
                 "client_id": os.getenv("GOOGLE_CLIENT_ID"),
@@ -176,7 +164,6 @@ async def oauth_callback(request: web.Request) -> web.Response:
         )
         flow.fetch_token(code=code)
         creds = flow.credentials
-
         token_data = {
             "token": creds.token,
             "refresh_token": creds.refresh_token,
@@ -187,18 +174,16 @@ async def oauth_callback(request: web.Request) -> web.Response:
         }
         with open("google_token.json", "w") as f:
             json.dump(token_data, f)
-
         if _telegram_app and ALLOWED_USER_ID:
             await _telegram_app.bot.send_message(
                 chat_id=ALLOWED_USER_ID,
                 text="✅ Google Calendar connecté ! Essaie /agenda",
             )
-
         return web.Response(
-            text="""<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="font-family:sans-serif;text-align:center;padding:60px;background:#0f0f23;color:white;">
-<h1>✅ Google Calendar connecté !</h1><p>Tu peux fermer cette page et revenir sur Telegram.</p>
-</body></html>""",
+            text='<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+                 '<body style="font-family:sans-serif;text-align:center;padding:60px;background:#0f0f23;color:white;">'
+                 '<h1>✅ Google Calendar connecté !</h1><p>Ferme cette page et reviens sur Telegram.</p>'
+                 '</body></html>',
             content_type="text/html",
         )
     except Exception as e:
@@ -207,16 +192,14 @@ async def oauth_callback(request: web.Request) -> web.Response:
 
 
 async def trigger_briefing(request: web.Request) -> web.Response:
-    """Endpoint appelé par cron-job.org pour le briefing quotidien."""
     secret = request.rel_url.query.get("secret")
     if secret != os.getenv("CRON_SECRET", ""):
         return web.Response(status=403, text="Forbidden")
     try:
         from bot.handlers.dispatcher import send_briefing
         await send_briefing(ALLOWED_USER_ID, _telegram_app)
-        return web.Response(text="Briefing envoyé !")
+        return web.Response(text="OK")
     except Exception as e:
-        logger.error(f"Erreur briefing cron : {e}")
         return web.Response(status=500, text=str(e))
 
 
@@ -224,10 +207,10 @@ async def health(request: web.Request) -> web.Response:
     return web.Response(text="OK")
 
 
-# ── Démarrage ──────────────────────────────────────────────────────────────────
+# ── Point d'entrée ─────────────────────────────────────────────────────────────
 
-def main():
-    import asyncio
+async def _run():
+    global _telegram_app
     from services.tasks_db import init_db
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -237,12 +220,10 @@ def main():
     base_url = _get_base_url()
     use_webhook = not base_url.startswith("http://localhost")
 
-    app_builder = ApplicationBuilder().token(token)
+    builder = ApplicationBuilder().token(token)
     if use_webhook:
-        app_builder = app_builder.updater(None)  # Désactive le polling
-    telegram_app = app_builder.build()
-
-    global _telegram_app
+        builder = builder.updater(None)
+    telegram_app = builder.build()
     _telegram_app = telegram_app
 
     telegram_app.add_handler(CommandHandler("start", cmd_start))
@@ -253,44 +234,38 @@ def main():
     telegram_app.add_handler(CommandHandler("briefing", cmd_briefing))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    async def post_init(application):
-        await init_db()
+    # Démarrer le serveur web
+    web_app = web.Application()
+    web_app.router.add_get("/", health)
+    web_app.router.add_get("/health", health)
+    web_app.router.add_get("/oauth/callback", oauth_callback)
+    web_app.router.add_post(f"/webhook/{token}", handle_telegram_webhook)
+    web_app.router.add_get("/cron/briefing", trigger_briefing)
 
-        web_app = web.Application()
-        web_app.router.add_get("/", health)
-        web_app.router.add_get("/health", health)
-        web_app.router.add_get("/oauth/callback", oauth_callback)
-        web_app.router.add_post(f"/webhook/{token}", handle_telegram_webhook)
-        web_app.router.add_get("/cron/briefing", trigger_briefing)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    await web.TCPSite(runner, "0.0.0.0", PORT).start()
+    logger.info(f"Serveur web démarré sur le port {PORT}")
 
-        runner = web.AppRunner(web_app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        await site.start()
+    await init_db()
+
+    async with telegram_app:
+        await telegram_app.start()
 
         if use_webhook:
             webhook_url = f"{base_url}/webhook/{token}"
-            await application.bot.set_webhook(webhook_url)
-            logger.info(f"✅ Webhook Telegram configuré : {webhook_url}")
+            await telegram_app.bot.set_webhook(webhook_url)
+            logger.info(f"✅ Webhook : {webhook_url}")
         else:
+            await telegram_app.updater.start_polling()
             logger.info("🔄 Mode polling (local)")
 
-        logger.info(f"🤖 Bastien Agent démarré sur port {PORT}")
+        logger.info("🤖 Bastien Agent opérationnel !")
+        await asyncio.Event().wait()  # tourne indéfiniment
 
-    telegram_app.post_init = post_init
 
-    if use_webhook:
-        asyncio.get_event_loop().run_until_complete(telegram_app.initialize())
-        asyncio.get_event_loop().run_until_complete(telegram_app.start())
-        asyncio.get_event_loop().run_until_complete(telegram_app.post_init(telegram_app))
-
-        async def run_forever():
-            while True:
-                await asyncio.sleep(3600)
-
-        asyncio.get_event_loop().run_until_complete(run_forever())
-    else:
-        telegram_app.run_polling(allowed_updates=Update.ALL_TYPES)
+def main():
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":
