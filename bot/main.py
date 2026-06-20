@@ -111,7 +111,7 @@ async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_T
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,
-        "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks",
+        "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file",
         "access_type": "offline",
         "prompt": "consent",
     })
@@ -285,7 +285,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         auth_url = "https://accounts.google.com/o/oauth2/auth?" + urlencode({
             "response_type": "code", "client_id": client_id,
             "redirect_uri": redirect_uri,
-            "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks",
+            "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file",
             "access_type": "offline", "prompt": "consent",
         })
         from telegram import InlineKeyboardMarkup, InlineKeyboardButton
@@ -326,6 +326,8 @@ async def oauth_callback(request: web.Request) -> web.Response:
             scopes=[
                 "https://www.googleapis.com/auth/calendar",
                 "https://www.googleapis.com/auth/tasks",
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive.file",
             ],
             redirect_uri=redirect_uri,
         )
@@ -337,7 +339,12 @@ async def oauth_callback(request: web.Request) -> web.Response:
             "token_uri": creds.token_uri,
             "client_id": creds.client_id,
             "client_secret": creds.client_secret,
-            "scopes": list(creds.scopes) if creds.scopes else ["https://www.googleapis.com/auth/calendar"],
+            "scopes": list(creds.scopes) if creds.scopes else [
+                "https://www.googleapis.com/auth/calendar",
+                "https://www.googleapis.com/auth/tasks",
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive.file",
+            ],
         }
         with open("google_token.json", "w") as f:
             json.dump(token_data, f)

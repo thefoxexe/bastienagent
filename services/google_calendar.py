@@ -10,6 +10,8 @@ from googleapiclient.discovery import build
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.file",
 ]
 TOKEN_PATH = "google_token.json"
 

@@ -22,6 +22,27 @@ _BRIEFING_KEYBOARD = InlineKeyboardMarkup([
 ])
 
 
+_CAT_EMOJIS = {
+    "restaurant": "🍽", "café": "☕", "coffee": "☕", "snack": "☕",
+    "courses": "🛒", "alimentation": "🛒", "supermarché": "🛒",
+    "transport": "🚗", "taxi": "🚗", "uber": "🚗", "train": "🚆",
+    "loisirs": "🎮", "sortie": "🎉", "cinéma": "🎬",
+    "santé": "💊", "pharmacie": "💊", "médecin": "🏥",
+    "shopping": "👕", "vêtements": "👕",
+    "abonnement": "📱",
+    "logement": "🏠", "loyer": "🏠",
+    "formation": "🎓",
+}
+
+
+def _cat_emoji(category: str) -> str:
+    key = category.lower()
+    for k, emoji in _CAT_EMOJIS.items():
+        if k in key:
+            return emoji
+    return "💸"
+
+
 async def dispatch_all(actions: list[dict], update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Exécute une liste d'actions en séquence."""
     for action in actions:
@@ -193,6 +214,57 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "briefing":
         await send_briefing(msg.chat_id, context)
+
+    elif name == "expense_add":
+        try:
+            from services import google_sheets
+            result = google_sheets.add_expense(
+                amount=float(params["amount"]),
+                category=params.get("category", "Autre"),
+                description=params.get("description", ""),
+                date_iso=params.get("date_iso"),
+            )
+            await msg.reply_text(
+                f"💸 *Dépense enregistrée*\n"
+                f"─────────────────\n"
+                f"{_cat_emoji(result['category'])} {result['category']}\n"
+                f"💰 *{result['amount']:.2f} €*  ·  {result['date']}\n"
+                f"─────────────────\n"
+                f"[📊 Voir le Google Sheet]({result['sheet_url']})",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await msg.reply_text(f"❌ Impossible d'enregistrer la dépense : {e}")
+
+    elif name == "expense_list":
+        try:
+            from services import google_sheets
+            period = params.get("period", "month")
+            summary = google_sheets.get_summary(period)
+            period_labels = {"today": "aujourd'hui", "week": "cette semaine", "month": "ce mois"}
+            label = period_labels.get(period, "ce mois")
+            if summary["count"] == 0:
+                await msg.reply_text(
+                    f"💰 *Dépenses — {label}*\n─────────────────\n_Aucune dépense enregistrée._",
+                    parse_mode="Markdown",
+                )
+            else:
+                lines = [
+                    f"  {_cat_emoji(cat)} {cat:<15} *{amt:.2f} €*"
+                    for cat, amt in sorted(summary["by_category"].items(), key=lambda x: -x[1])
+                ]
+                await msg.reply_text(
+                    f"💰 *Dépenses — {label}*\n"
+                    f"─────────────────\n"
+                    f"Total : *{summary['total']:.2f} €*  ({summary['count']} dépenses)\n"
+                    f"─────────────────\n"
+                    + "\n".join(lines) + "\n"
+                    f"─────────────────\n"
+                    f"[📊 Google Sheet]({summary['sheet_url']})",
+                    parse_mode="Markdown",
+                )
+        except Exception as e:
+            await msg.reply_text(f"❌ Impossible de lire les dépenses : {e}")
 
     else:
         await msg.reply_text(reply or "Je n'ai pas compris, reformule ?")
