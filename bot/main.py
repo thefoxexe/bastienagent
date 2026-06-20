@@ -58,7 +58,46 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_debug_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
+    try:
+        from services.google_calendar import _get_service, _get_all_calendar_ids
+        from datetime import datetime
+        import pytz
+
+        service = _get_service()
+        cal_ids = _get_all_calendar_ids(service)
+        await update.message.reply_text(f"📋 Calendriers trouvés ({len(cal_ids)}) :\n" + "\n".join(f"• `{c}`" for c in cal_ids), parse_mode="Markdown")
+
+        tz = pytz.timezone("Europe/Zurich")
+        now = datetime.now(tz)
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start.replace(hour=23, minute=59, second=59)
+
+        total = 0
+        for cal_id in cal_ids:
+            result = service.events().list(
+                calendarId=cal_id,
+                timeMin=start.isoformat(),
+                timeMax=end.isoformat(),
+                singleEvents=True,
+            ).execute()
+            items = result.get("items", [])
+            total += len(items)
+            if items:
+                names = ", ".join(i.get("summary", "?") for i in items)
+                await update.message.reply_text(f"📅 `{cal_id[:30]}`\n→ {names}", parse_mode="Markdown")
+
+        if total == 0:
+            await update.message.reply_text("⚠️ Aucun événement trouvé dans aucun calendrier pour aujourd'hui.")
+        else:
+            await update.message.reply_text(f"✅ Total : {total} événement(s) trouvé(s)")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erreur debug : {e}")
+
+
+
     if not _is_authorized(update):
         return
     client_id = os.getenv("GOOGLE_CLIENT_ID")
@@ -360,6 +399,7 @@ async def _run():
     _telegram_app = telegram_app
 
     telegram_app.add_handler(CommandHandler("start", cmd_start))
+    telegram_app.add_handler(CommandHandler("debug_calendar", cmd_debug_calendar))
     telegram_app.add_handler(CommandHandler("connecter_calendar", cmd_connecter_calendar))
     telegram_app.add_handler(CommandHandler("agenda", cmd_agenda))
     telegram_app.add_handler(CommandHandler("taches", cmd_taches))
