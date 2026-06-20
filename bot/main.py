@@ -111,23 +111,79 @@ async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await dispatch({"action": "briefing", "params": {}, "reply": ""}, update, context)
 
 
+async def _process_text(user_text: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Traite un message texte (venant d'un texte ou d'un vocal transcrit)."""
+    from services.claude_ai import parse_message
+    from bot.handlers.dispatcher import dispatch
+    history = context.user_data.get("history", [])
+    action = parse_message(user_text, history)
+    history.append({"role": "user", "content": user_text})
+    history.append({"role": "assistant", "content": action.get("reply", "")})
+    context.user_data["history"] = history[-12:]
+    await dispatch(action, update, context)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_authorized(update):
         return
     user_text = update.message.text
     await update.message.chat.send_action("typing")
     try:
-        from services.claude_ai import parse_message
-        from bot.handlers.dispatcher import dispatch
-        history = context.user_data.get("history", [])
-        action = parse_message(user_text, history)
-        history.append({"role": "user", "content": user_text})
-        history.append({"role": "assistant", "content": action.get("reply", "")})
-        context.user_data["history"] = history[-12:]
-        await dispatch(action, update, context)
+        await _process_text(user_text, update, context)
     except Exception as e:
         logger.error(f"Erreur : {e}", exc_info=True)
         await update.message.reply_text(f"⚠️ Erreur : {e}")
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
+    await update.message.chat.send_action("typing")
+    try:
+        text = await _transcribe_voice(update, context)
+        if not text:
+            await update.message.reply_text("❌ Je n'ai pas pu comprendre le message vocal. Réessaie.")
+            return
+        await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
+        await _process_text(text, update, context)
+    except Exception as e:
+        logger.error(f"Erreur vocal : {e}", exc_info=True)
+        await update.message.reply_text(f"⚠️ Erreur transcription : {e}")
+
+
+async def _transcribe_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+    import tempfile
+    import speech_recognition as sr
+    from pydub import AudioSegment
+
+    voice = update.message.voice or update.message.audio
+    if not voice:
+        return ""
+
+    tg_file = await context.bot.get_file(voice.file_id)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ogg_path = os.path.join(tmp, "voice.ogg")
+        wav_path = os.path.join(tmp, "voice.wav")
+
+        await tg_file.download_to_drive(ogg_path)
+
+        # Convertir OGG → WAV
+        audio = AudioSegment.from_ogg(ogg_path)
+        audio.export(wav_path, format="wav")
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+
+        # Transcription via Google (gratuit, pas de clé requise)
+        try:
+            text = recognizer.recognize_google(audio_data, language="fr-FR")
+            return text
+        except sr.UnknownValueError:
+            return ""
+        except sr.RequestError as e:
+            raise RuntimeError(f"Service de transcription indisponible : {e}")
 
 
 # ── Routes web ─────────────────────────────────────────────────────────────────
@@ -233,6 +289,7 @@ async def _run():
     telegram_app.add_handler(CommandHandler("notes", cmd_notes))
     telegram_app.add_handler(CommandHandler("briefing", cmd_briefing))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    telegram_app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
     # Démarrer le serveur web
     web_app = web.Application()
