@@ -174,3 +174,60 @@ def delete_note(position: int) -> bool:
         return True
     except Exception:
         return False
+
+
+# ── Idées ──────────────────────────────────────────────────────────────────────
+
+_IDEAS_LIST_TITLE = "Idées Bastien"
+_ideas_list_id: Optional[str] = None
+_idea_cache: list[str] = []
+
+
+def _get_ideas_list_id(service) -> str:
+    global _ideas_list_id
+    if _ideas_list_id:
+        return _ideas_list_id
+    result = service.tasklists().list().execute()
+    for lst in result.get("items", []):
+        if lst.get("title") == _IDEAS_LIST_TITLE:
+            _ideas_list_id = lst["id"]
+            return _ideas_list_id
+    created = service.tasklists().insert(body={"title": _IDEAS_LIST_TITLE}).execute()
+    _ideas_list_id = created["id"]
+    return _ideas_list_id
+
+
+def add_idea(content: str) -> dict:
+    service = _get_service()
+    ideas_list = _get_ideas_list_id(service)
+    task = service.tasks().insert(tasklist=ideas_list, body={"title": content}).execute()
+    return {"id": task["id"], "content": content}
+
+
+def list_ideas() -> list[dict]:
+    global _idea_cache
+    service = _get_service()
+    ideas_list = _get_ideas_list_id(service)
+    result = service.tasks().list(
+        tasklist=ideas_list,
+        showCompleted=False,
+        showHidden=False,
+    ).execute()
+    items = result.get("items", [])
+    _idea_cache = [t["id"] for t in items]
+    return [{"id": i + 1, "content": t.get("title", ""), "google_id": t["id"]} for i, t in enumerate(items)]
+
+
+def delete_idea(position: int) -> bool:
+    service = _get_service()
+    if not _idea_cache or position < 1 or position > len(_idea_cache):
+        list_ideas()
+    if position < 1 or position > len(_idea_cache):
+        return False
+    google_id = _idea_cache[position - 1]
+    ideas_list = _get_ideas_list_id(service)
+    try:
+        service.tasks().delete(tasklist=ideas_list, task=google_id).execute()
+        return True
+    except Exception:
+        return False

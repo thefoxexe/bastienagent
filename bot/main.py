@@ -23,6 +23,7 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("📅 Agenda"), KeyboardButton("✅ Tâches"), KeyboardButton("📝 Notes")],
         [KeyboardButton("💸 Dépenses"), KeyboardButton("☀️ Briefing"), KeyboardButton("⚙️ Paramètres")],
+        [KeyboardButton("🛠 Outils")],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -184,7 +185,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_text = update.message.text
 
-    # Saisie du budget (état attendu)
+    # Bouton Outils → sous-menu inline
+    if user_text == "🛠 Outils":
+        from bot.handlers.dispatcher import _OUTILS_KEYBOARD
+        await update.message.reply_text(
+            "🛠 *Outils*\n─────────────────\nQue veux-tu faire ?",
+            parse_mode="Markdown",
+            reply_markup=_OUTILS_KEYBOARD,
+        )
+        return
+
+    # États d'attente
     if context.user_data.get("waiting_for") == "budget":
         try:
             clean = user_text.replace("'", "").replace(",", ".").replace(" ", "").replace("CHF", "").replace("chf", "")
@@ -199,6 +210,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except ValueError:
             await update.message.reply_text("❌ Envoie juste un nombre (ex: 2000)")
+        return
+
+    if context.user_data.get("waiting_for") == "journal":
+        context.user_data.pop("waiting_for")
+        from bot.handlers.dispatcher import dispatch_all
+        await dispatch_all([{"action": "journal_add", "params": {"content": user_text}, "reply": ""}], update, context)
+        return
+
+    if context.user_data.get("waiting_for") == "idea":
+        context.user_data.pop("waiting_for")
+        from bot.handlers.dispatcher import dispatch_all
+        await dispatch_all([{"action": "idea_add", "params": {"content": user_text}, "reply": ""}], update, context)
+        return
+
+    if context.user_data.get("waiting_for") == "write_assist":
+        context.user_data.pop("waiting_for")
+        await _process_text(f"Aide-moi à rédiger : {user_text}", update, context)
         return
 
     # Raccourcis clavier permanent
@@ -250,9 +278,21 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
             )
         else:
-            # Message court → traite comme commande normale
             await wait_msg.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
-            await _process_text(text, update, context)
+            waiting = context.user_data.get("waiting_for")
+            if waiting == "journal":
+                context.user_data.pop("waiting_for")
+                from bot.handlers.dispatcher import dispatch_all
+                await dispatch_all([{"action": "journal_add", "params": {"content": text}, "reply": ""}], update, context)
+            elif waiting == "idea":
+                context.user_data.pop("waiting_for")
+                from bot.handlers.dispatcher import dispatch_all
+                await dispatch_all([{"action": "idea_add", "params": {"content": text}, "reply": ""}], update, context)
+            elif waiting == "write_assist":
+                context.user_data.pop("waiting_for")
+                await _process_text(f"Aide-moi à rédiger : {text}", update, context)
+            else:
+                await _process_text(text, update, context)
     except Exception as e:
         logger.error(f"Erreur vocal : {e}", exc_info=True)
         await wait_msg.edit_text(f"⚠️ Erreur transcription : {e}")
@@ -429,6 +469,42 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id,
             "💰 *Quel est ton budget mensuel en CHF ?*\n_Envoie juste le montant (ex: 2000)_",
+            parse_mode="Markdown",
+        )
+
+    elif query.data == "outils_journal":
+        context.user_data["waiting_for"] = "journal"
+        await context.bot.send_message(
+            chat_id,
+            "📓 _Raconte-moi ta journée ou ce que tu veux noter..._\n_(tu peux aussi envoyer un vocal)_",
+            parse_mode="Markdown",
+        )
+
+    elif query.data == "outils_ideas":
+        try:
+            from services import google_tasks
+            ideas = google_tasks.list_ideas()
+            if not ideas:
+                await context.bot.send_message(
+                    chat_id,
+                    "💡 *Idées*\n─────────────────\n_Aucune idée pour l'instant._\n\nDis-moi une idée à sauvegarder !",
+                    parse_mode="Markdown",
+                )
+            else:
+                lines = [f"  `#{i['id']}`  {i['content']}" for i in ideas]
+                await context.bot.send_message(
+                    chat_id,
+                    f"💡 *Tes idées* ({len(ideas)})\n─────────────────\n" + "\n".join(lines),
+                    parse_mode="Markdown",
+                )
+        except Exception as e:
+            await context.bot.send_message(chat_id, f"❌ Erreur : {e}")
+
+    elif query.data == "outils_write":
+        context.user_data["waiting_for"] = "write_assist"
+        await context.bot.send_message(
+            chat_id,
+            "✍️ _Qu'est-ce que tu veux rédiger ?_\n_Décris-moi le contexte (ex: un email à mon patron pour demander des vacances)_",
             parse_mode="Markdown",
         )
 

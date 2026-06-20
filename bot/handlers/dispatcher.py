@@ -25,6 +25,17 @@ _SETTINGS_KEYBOARD = InlineKeyboardMarkup([[
     InlineKeyboardButton("💰 Modifier le budget mensuel", callback_data="set_budget"),
 ]])
 
+_OUTILS_KEYBOARD = InlineKeyboardMarkup([[
+    InlineKeyboardButton("📓 Journal", callback_data="outils_journal"),
+    InlineKeyboardButton("💡 Mes idées", callback_data="outils_ideas"),
+    InlineKeyboardButton("✍️ Rédiger", callback_data="outils_write"),
+]])
+
+_MONTHS_FR = {
+    1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
+    7: "juillet", 8: "août", 9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre",
+}
+
 _CAT_EMOJIS = {
     "restaurant": "🍽", "café": "☕", "coffee": "☕", "snack": "☕",
     "courses": "🛒", "alimentation": "🛒", "supermarché": "🛒",
@@ -350,6 +361,81 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             )
         except Exception as e:
             await msg.reply_text(f"❌ Erreur : {e}")
+
+    elif name == "currency_convert":
+        try:
+            from services import currency as currency_svc
+            res = await currency_svc.convert(
+                float(params["amount"]),
+                params["from_currency"],
+                params["to_currency"],
+            )
+            await msg.reply_text(
+                f"💱 *Conversion de devises*\n"
+                f"─────────────────\n"
+                f"*{res['amount']:.2f} {res['from_currency']}* = *{res['result']:.2f} {res['to_currency']}*\n"
+                f"_{res['from_name']} → {res['to_name']}_\n"
+                f"Taux : 1 {res['from_currency']} = {res['rate']:.4f} {res['to_currency']}",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await msg.reply_text(f"❌ Conversion impossible : {e}")
+
+    elif name == "journal_add":
+        try:
+            from services.google_docs import create_note_doc
+            now = datetime.now(pytz.timezone(TIMEZONE))
+            title = f"Journal — {now.day} {_MONTHS_FR[now.month]} {now.year} à {now.strftime('%H:%M')}"
+            doc = create_note_doc(title=title, content=params["content"])
+            preview = params["content"][:200] + ("..." if len(params["content"]) > 200 else "")
+            await msg.reply_text(
+                f"📓 *Entrée de journal sauvegardée*\n"
+                f"─────────────────\n"
+                f"_{preview}_\n"
+                f"─────────────────\n"
+                f"[📄 Ouvrir dans Google Docs]({doc['url']})",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await msg.reply_text(f"❌ Impossible de sauvegarder le journal : {e}")
+
+    elif name == "idea_add":
+        try:
+            google_tasks.add_idea(params["content"])
+            await msg.reply_text(
+                f"💡 *Idée sauvegardée !*\n"
+                f"─────────────────\n"
+                f"_{params['content']}_",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            await msg.reply_text(f"❌ Impossible de sauvegarder l'idée : {e}")
+
+    elif name == "idea_list":
+        try:
+            ideas = google_tasks.list_ideas()
+            if not ideas:
+                await msg.reply_text(
+                    "💡 *Idées*\n─────────────────\n_Aucune idée pour l'instant._",
+                    parse_mode="Markdown",
+                )
+            else:
+                lines = [f"  `#{i['id']}`  {i['content']}" for i in ideas]
+                await msg.reply_text(
+                    f"💡 *Tes idées* ({len(ideas)})\n─────────────────\n" + "\n".join(lines),
+                    parse_mode="Markdown",
+                )
+        except Exception as e:
+            await msg.reply_text(f"❌ Impossible de lire les idées : {e}")
+
+    elif name == "write_assist":
+        write_type = params.get("type", "texte")
+        await msg.reply_text(
+            f"✍️ *Rédaction — {write_type}*\n"
+            f"─────────────────\n"
+            f"{reply}",
+            parse_mode="Markdown",
+        )
 
     else:
         await msg.reply_text(reply or "Je n'ai pas compris, reformule ?")
