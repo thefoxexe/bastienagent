@@ -87,11 +87,13 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             )
             date_str = start_dt.strftime("%d/%m/%Y")
             time_str = start_dt.strftime("%H:%M")
+            link = result.get("link", "")
+            link_line = f"\n[Ouvrir dans Calendar]({link})" if link else ""
             await msg.reply_text(
                 f"✅ *Événement ajouté au calendrier*\n"
                 f"─────────────────\n"
                 f"📌 {result['title']}\n"
-                f"🗓 {date_str} à {time_str}",
+                f"🗓 {date_str} à {time_str}{link_line}",
                 parse_mode="Markdown",
             )
         except Exception as e:

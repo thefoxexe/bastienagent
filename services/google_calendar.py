@@ -157,7 +157,12 @@ def create_event(
         "end": {"dateTime": end_dt.isoformat(), "timeZone": timezone},
     }
     created = service.events().insert(calendarId="primary", body=event).execute()
-    return {"id": created["id"], "title": title, "start": start_dt.isoformat()}
+    return {
+        "id": created["id"],
+        "title": title,
+        "start": start_dt.isoformat(),
+        "link": created.get("htmlLink", ""),
+    }
 
 
 def delete_event(event_id: str) -> bool:
