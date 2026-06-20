@@ -219,16 +219,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_authorized(update):
         return
-    # Message d'attente immédiat
     wait_msg = await update.message.reply_text("🎙️ _J'écoute..._", parse_mode="Markdown")
     try:
-        text = await _transcribe_voice(update, context)
+        text, duration = await _transcribe_voice(update, context)
         if not text:
             await wait_msg.edit_text("❌ Je n'ai pas pu comprendre. Parle plus fort ou réessaie.")
             return
-        # Remplacer le message d'attente par la transcription
-        await wait_msg.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
-        await _process_text(text, update, context)
+
+        if duration > 45:
+            # Note vocale longue → résumé + Google Doc
+            await wait_msg.edit_text("🎙️ _Transcription terminée, je génère le résumé..._", parse_mode="Markdown")
+            from services.claude_ai import generate_summary
+            from services.google_docs import create_note_doc
+            from datetime import datetime
+            import pytz
+
+            summary = generate_summary(text)
+            tz = pytz.timezone(os.getenv("TIMEZONE", "Europe/Zurich"))
+            now = datetime.now(tz)
+            title = f"Note vocale — {now.strftime('%d/%m/%Y %H:%M')}"
+
+            doc = create_note_doc(title=title, content=text, summary=summary)
+
+            await wait_msg.edit_text(
+                f"🎙️ *Note vocale sauvegardée dans Google Docs*\n"
+                f"─────────────────\n"
+                f"📋 *Résumé :*\n_{summary}_\n"
+                f"─────────────────\n"
+                f"[📄 Ouvrir le document]({doc['url']})",
+                parse_mode="Markdown",
+            )
+        else:
+            # Message court → traite comme commande normale
+            await wait_msg.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
+            await _process_text(text, update, context)
     except Exception as e:
         logger.error(f"Erreur vocal : {e}", exc_info=True)
         await wait_msg.edit_text(f"⚠️ Erreur transcription : {e}")
@@ -296,39 +320,45 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait_msg.edit_text(f"❌ Erreur lors de l'analyse : {e}")
 
 
-async def _transcribe_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def _transcribe_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[str, int]:
+    """Transcrit un message vocal. Retourne (texte, durée_secondes)."""
     import tempfile
     import speech_recognition as sr
     from pydub import AudioSegment
 
     voice = update.message.voice or update.message.audio
     if not voice:
-        return ""
+        return "", 0
 
+    duration = getattr(voice, "duration", 0) or 0
     tg_file = await context.bot.get_file(voice.file_id)
 
     with tempfile.TemporaryDirectory() as tmp:
         ogg_path = os.path.join(tmp, "voice.ogg")
-        wav_path = os.path.join(tmp, "voice.wav")
-
         await tg_file.download_to_drive(ogg_path)
 
-        # Convertir OGG → WAV
         audio = AudioSegment.from_ogg(ogg_path)
-        audio.export(wav_path, format="wav")
-
         recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio_data = recognizer.record(source)
 
-        # Transcription via Google (gratuit, pas de clé requise)
-        try:
-            text = recognizer.recognize_google(audio_data, language="fr-FR")
-            return text
-        except sr.UnknownValueError:
-            return ""
-        except sr.RequestError as e:
-            raise RuntimeError(f"Service de transcription indisponible : {e}")
+        CHUNK_MS = 50_000  # 50 secondes par chunk
+        chunks = [audio[i:i + CHUNK_MS] for i in range(0, len(audio), CHUNK_MS)]
+        texts = []
+
+        for i, chunk in enumerate(chunks):
+            wav_path = os.path.join(tmp, f"chunk_{i}.wav")
+            chunk.export(wav_path, format="wav")
+            with sr.AudioFile(wav_path) as source:
+                audio_data = recognizer.record(source)
+            try:
+                t = recognizer.recognize_google(audio_data, language="fr-FR")
+                if t:
+                    texts.append(t)
+            except sr.UnknownValueError:
+                pass
+            except sr.RequestError as e:
+                raise RuntimeError(f"Service de transcription indisponible : {e}")
+
+        return " ".join(texts), duration
 
 
 # ── Routes web ─────────────────────────────────────────────────────────────────

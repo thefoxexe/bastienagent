@@ -241,11 +241,27 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "note_add":
         try:
-            google_tasks.add_note(params["content"])
+            content = params["content"]
+            google_tasks.add_note(content)
+
+            doc_line = ""
+            try:
+                from services.google_docs import create_note_doc
+                from datetime import datetime
+                import pytz
+                tz = pytz.timezone(TIMEZONE)
+                now = datetime.now(tz)
+                title = f"Note — {now.strftime('%d/%m/%Y %H:%M')}"
+                doc = create_note_doc(title=title, content=content)
+                doc_line = f"\n─────────────────\n[📄 Ouvrir dans Google Docs]({doc['url']})"
+            except Exception:
+                pass
+
             await msg.reply_text(
-                f"📝 *Note sauvegardée dans Google Tasks*\n"
+                f"📝 *Note sauvegardée*\n"
                 f"─────────────────\n"
-                f"_{params['content']}_",
+                f"_{content}_"
+                f"{doc_line}",
                 parse_mode="Markdown",
             )
         except Exception as e:

@@ -201,6 +201,21 @@ def generate_briefing_text(
     )
 
 
+def generate_summary(text: str) -> str:
+    """Génère un résumé concis en 3-5 phrases d'un texte donné."""
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        messages=[{"role": "user", "content": (
+            "Résume ce texte en 3 à 5 phrases maximum, en français, "
+            "de façon claire et concise. Retourne uniquement le résumé, sans introduction.\n\n"
+            f"Texte :\n{text}"
+        )}],
+    )
+    return response.content[0].text.strip()
+
+
 def _time_greeting(hour: int) -> str:
     if hour < 12:
         return "Bonjour"
