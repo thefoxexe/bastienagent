@@ -247,7 +247,6 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             doc_line = ""
             try:
                 from services.google_docs import create_note_doc
-                from datetime import datetime
                 now = datetime.now(pytz.timezone(TIMEZONE))
                 title = f"Note — {now.strftime('%d/%m/%Y %H:%M')}"
                 doc = create_note_doc(title=title, content=content)
