@@ -49,9 +49,11 @@ Actions disponibles :
 - "weather" : météo (params: {"city": str|null})
 - "briefing" : briefing complet (params: {})
 - "expense_add" : noter une dépense (params: {"amount": float, "category": str, "description": str, "date_iso": str|null})
-- "expense_list" : voir le résumé des dépenses (params: {"period": "today"|"week"|"month"})
+- "expense_list" : voir le résumé des dépenses (params: {"period": "today"|"week"|"month"|"year"})
+- "settings" : afficher les paramètres du bot (params: {})
 
 Catégories de dépenses : Restaurant, Café, Courses, Transport, Loisirs, Santé, Shopping, Abonnements, Logement, Autre
+Devise : CHF (francs suisses)
 
 Dates/heures : format ISO 8601 avec timezone (ex: "2026-07-04T18:15:00+02:00").
 Date et heure actuelle : {current_datetime}

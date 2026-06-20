@@ -21,6 +21,9 @@ _BRIEFING_KEYBOARD = InlineKeyboardMarkup([
     ]
 ])
 
+_SETTINGS_KEYBOARD = InlineKeyboardMarkup([[
+    InlineKeyboardButton("💰 Modifier le budget mensuel", callback_data="set_budget"),
+]])
 
 _CAT_EMOJIS = {
     "restaurant": "🍽", "café": "☕", "coffee": "☕", "snack": "☕",
@@ -43,8 +46,65 @@ def _cat_emoji(category: str) -> str:
     return "💸"
 
 
+def get_expense_keyboard(active: str = "month") -> InlineKeyboardMarkup:
+    def btn(label, period):
+        check = " ✓" if period == active else ""
+        return InlineKeyboardButton(f"{label}{check}", callback_data=f"exp_{period}")
+    return InlineKeyboardMarkup([[
+        btn("📅 Jour", "today"),
+        btn("📆 Semaine", "week"),
+        btn("🗓 Mois", "month"),
+        btn("📊 Année", "year"),
+    ]])
+
+
+def format_expense_text(summary: dict) -> str:
+    period_labels = {
+        "today": "aujourd'hui",
+        "week": "cette semaine",
+        "month": "ce mois",
+        "year": "cette année",
+    }
+    label = period_labels.get(summary["period"], "ce mois")
+
+    if summary["count"] == 0:
+        return f"💰 *Dépenses — {label}*\n─────────────────\n_Aucune dépense enregistrée._"
+
+    lines = [
+        f"  {_cat_emoji(cat)} {cat:<14} *{amt:.2f} CHF*"
+        for cat, amt in sorted(summary["by_category"].items(), key=lambda x: -x[1])
+    ]
+
+    budget_line = ""
+    budget = summary.get("budget")
+    if budget and summary["period"] == "month":
+        pct = (summary["total"] / budget) * 100
+        if pct >= 100:
+            icon = "🔴"
+            status = "DÉPASSÉ !"
+        elif pct >= 90:
+            icon = "🚨"
+            status = "Attention !"
+        elif pct >= 70:
+            icon = "⚠️"
+            status = "Approche du budget"
+        else:
+            icon = "✅"
+            status = f"{100 - pct:.0f}% restant"
+        budget_line = f"\n{icon} Budget : *{summary['total']:.2f}* / {budget:.0f} CHF — _{status}_"
+
+    return (
+        f"💰 *Dépenses — {label}*\n"
+        f"─────────────────\n"
+        f"Total : *{summary['total']:.2f} CHF*  ({summary['count']} dépenses)\n"
+        f"─────────────────\n"
+        + "\n".join(lines)
+        + budget_line
+        + f"\n─────────────────\n[📊 Google Sheet]({summary['sheet_url']})"
+    )
+
+
 async def dispatch_all(actions: list[dict], update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Exécute une liste d'actions en séquence."""
     for action in actions:
         await dispatch(action, update, context)
 
@@ -132,7 +192,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "task_add":
         try:
-            result = google_tasks.add_task(params["title"], params.get("due_iso"))
+            google_tasks.add_task(params["title"], params.get("due_iso"))
             await msg.reply_text(
                 f"✅ *Tâche ajoutée dans Google Tasks*\n"
                 f"─────────────────\n"
@@ -224,13 +284,27 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 description=params.get("description", ""),
                 date_iso=params.get("date_iso"),
             )
+            # Check budget after adding
+            warning = ""
+            try:
+                summary = google_sheets.get_summary("month")
+                budget = summary.get("budget")
+                if budget:
+                    pct = (summary["total"] / budget) * 100
+                    if pct >= 100:
+                        warning = f"\n\n🔴 *Budget mensuel dépassé !*\n{summary['total']:.2f} / {budget:.0f} CHF ({pct:.0f}%)"
+                    elif pct >= 80:
+                        warning = f"\n\n⚠️ Budget à *{pct:.0f}%* — {summary['total']:.2f} / {budget:.0f} CHF"
+            except Exception:
+                pass
             await msg.reply_text(
                 f"💸 *Dépense enregistrée*\n"
                 f"─────────────────\n"
                 f"{_cat_emoji(result['category'])} {result['category']}\n"
-                f"💰 *{result['amount']:.2f} €*  ·  {result['date']}\n"
+                f"💰 *{result['amount']:.2f} CHF*  ·  {result['date']}"
+                f"{warning}\n"
                 f"─────────────────\n"
-                f"[📊 Voir le Google Sheet]({result['sheet_url']})",
+                f"[📊 Google Sheet]({result['sheet_url']})",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -241,30 +315,28 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             from services import google_sheets
             period = params.get("period", "month")
             summary = google_sheets.get_summary(period)
-            period_labels = {"today": "aujourd'hui", "week": "cette semaine", "month": "ce mois"}
-            label = period_labels.get(period, "ce mois")
-            if summary["count"] == 0:
-                await msg.reply_text(
-                    f"💰 *Dépenses — {label}*\n─────────────────\n_Aucune dépense enregistrée._",
-                    parse_mode="Markdown",
-                )
-            else:
-                lines = [
-                    f"  {_cat_emoji(cat)} {cat:<15} *{amt:.2f} €*"
-                    for cat, amt in sorted(summary["by_category"].items(), key=lambda x: -x[1])
-                ]
-                await msg.reply_text(
-                    f"💰 *Dépenses — {label}*\n"
-                    f"─────────────────\n"
-                    f"Total : *{summary['total']:.2f} €*  ({summary['count']} dépenses)\n"
-                    f"─────────────────\n"
-                    + "\n".join(lines) + "\n"
-                    f"─────────────────\n"
-                    f"[📊 Google Sheet]({summary['sheet_url']})",
-                    parse_mode="Markdown",
-                )
+            await msg.reply_text(
+                format_expense_text(summary),
+                parse_mode="Markdown",
+                reply_markup=get_expense_keyboard(period),
+            )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible de lire les dépenses : {e}")
+
+    elif name == "settings":
+        try:
+            from services import google_sheets
+            budget = google_sheets.get_budget()
+            budget_str = f"*{budget:.0f} CHF*" if budget else "_Non défini_"
+            await msg.reply_text(
+                f"⚙️ *Paramètres*\n"
+                f"─────────────────\n"
+                f"💰 Budget mensuel : {budget_str}",
+                parse_mode="Markdown",
+                reply_markup=_SETTINGS_KEYBOARD,
+            )
+        except Exception as e:
+            await msg.reply_text(f"❌ Erreur : {e}")
 
     else:
         await msg.reply_text(reply or "Je n'ai pas compris, reformule ?")

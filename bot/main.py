@@ -4,7 +4,7 @@ import json
 import logging
 from aiohttp import web
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 load_dotenv()
@@ -18,6 +18,24 @@ logger = logging.getLogger(__name__)
 ALLOWED_USER_ID = int(os.getenv("TELEGRAM_USER_ID", "0"))
 PORT = int(os.getenv("PORT", "8080"))
 _telegram_app = None
+
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("📅 Agenda"), KeyboardButton("✅ Tâches"), KeyboardButton("📝 Notes")],
+        [KeyboardButton("💸 Dépenses"), KeyboardButton("☀️ Briefing"), KeyboardButton("⚙️ Paramètres")],
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+)
+
+_KEYBOARD_SHORTCUTS = {
+    "📅 Agenda":        [{"action": "calendar_read_today", "params": {}, "reply": ""}],
+    "✅ Tâches":        [{"action": "task_list", "params": {}, "reply": ""}],
+    "📝 Notes":         [{"action": "note_list", "params": {}, "reply": ""}],
+    "💸 Dépenses":      [{"action": "expense_list", "params": {"period": "month"}, "reply": ""}],
+    "☀️ Briefing":      [{"action": "briefing", "params": {}, "reply": ""}],
+    "⚙️ Paramètres":   [{"action": "settings", "params": {}, "reply": ""}],
+}
 
 
 def _is_authorized(update: Update) -> bool:
@@ -47,14 +65,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Parle-moi naturellement :\n"
         "• _\"Qu'est-ce que j'ai aujourd'hui ?\"_\n"
         "• _\"Rdv dentiste mardi à 10h\"_\n"
-        "• _\"Ajoute acheter du pain à ma liste\"_\n"
-        "• _\"Note : code wifi = abc123\"_\n"
-        "• _\"Météo ?\"_\n\n"
+        "• _\"J'ai dépensé 45 CHF au restaurant\"_\n"
+        "• _\"Note : code wifi = abc123\"_\n\n"
         f"📅 Google Calendar : {cal}\n\n"
-        "Commandes :\n"
-        "/agenda · /taches · /notes · /briefing\n"
-        "/connecter\\_calendar — connecter Google Calendar",
+        "Les boutons en bas sont toujours disponibles 👇",
         parse_mode="Markdown",
+        reply_markup=MAIN_KEYBOARD,
     )
 
 
@@ -167,6 +183,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_authorized(update):
         return
     user_text = update.message.text
+
+    # Saisie du budget (état attendu)
+    if context.user_data.get("waiting_for") == "budget":
+        try:
+            clean = user_text.replace("'", "").replace(",", ".").replace(" ", "").replace("CHF", "").replace("chf", "")
+            amount = float(clean)
+            from services import google_sheets
+            google_sheets.set_budget(amount)
+            context.user_data.pop("waiting_for")
+            await update.message.reply_text(
+                f"✅ *Budget mensuel défini : {amount:.0f} CHF*\n"
+                f"Je t'alerterai quand tu approches de ce montant.",
+                parse_mode="Markdown",
+            )
+        except ValueError:
+            await update.message.reply_text("❌ Envoie juste un nombre (ex: 2000)")
+        return
+
+    # Raccourcis clavier permanent
+    if user_text in _KEYBOARD_SHORTCUTS:
+        from bot.handlers.dispatcher import dispatch_all
+        await update.message.chat.send_action("typing")
+        await dispatch_all(_KEYBOARD_SHORTCUTS[user_text], update, context)
+        return
+
     await update.message.chat.send_action("typing")
     try:
         await _process_text(user_text, update, context)
@@ -276,6 +317,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             else:
                 await context.bot.send_message(chat_id, f"❌ Erreur : {e}")
+
+    elif query.data.startswith("exp_"):
+        period = query.data[4:]  # today / week / month / year
+        from services import google_sheets
+        from bot.handlers.dispatcher import format_expense_text, get_expense_keyboard
+        try:
+            summary = google_sheets.get_summary(period)
+            await query.message.edit_text(
+                format_expense_text(summary),
+                parse_mode="Markdown",
+                reply_markup=get_expense_keyboard(period),
+            )
+        except Exception as e:
+            await query.message.edit_text(f"❌ Erreur : {e}")
+
+    elif query.data == "set_budget":
+        context.user_data["waiting_for"] = "budget"
+        await context.bot.send_message(
+            chat_id,
+            "💰 *Quel est ton budget mensuel en CHF ?*\n_Envoie juste le montant (ex: 2000)_",
+            parse_mode="Markdown",
+        )
 
     elif query.data == "connecter_calendar":
         client_id = os.getenv("GOOGLE_CLIENT_ID")
@@ -444,6 +507,19 @@ async def _run():
             logger.info("🔄 Mode polling (local)")
 
         logger.info("🤖 Bastien Agent opérationnel !")
+
+        # Envoie le clavier permanent dès le démarrage
+        if ALLOWED_USER_ID:
+            try:
+                await telegram_app.bot.send_message(
+                    chat_id=ALLOWED_USER_ID,
+                    text="🤖 _Prêt !_",
+                    parse_mode="Markdown",
+                    reply_markup=MAIN_KEYBOARD,
+                )
+            except Exception:
+                pass
+
         await asyncio.Event().wait()  # tourne indéfiniment
 
 
