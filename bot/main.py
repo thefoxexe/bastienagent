@@ -97,7 +97,7 @@ async def cmd_debug_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Erreur debug : {e}")
 
 
-
+async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_authorized(update):
         return
     client_id = os.getenv("GOOGLE_CLIENT_ID")
