@@ -5,27 +5,36 @@ from typing import Optional
 import pytz
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 TOKEN_PATH = "google_token.json"
-CREDENTIALS_PATH = "google_credentials.json"
 
 
 def _get_service():
     creds = None
-    if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    # Priorité 1 : variable d'environnement (pour Railway/Render)
+    token_json_env = os.getenv("GOOGLE_TOKEN_JSON")
+    if token_json_env:
+        creds = Credentials.from_authorized_user_info(json.loads(token_json_env), SCOPES)
+    elif os.path.exists(TOKEN_PATH):
+        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+    else:
+        raise RuntimeError(
+            "Google Calendar pas encore connecté.\n"
+            "Lance python gen_auth_url.py depuis ton ordinateur."
+        )
+
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            # Sauvegarder le token rafraîchi
+            if not token_json_env:
+                with open(TOKEN_PATH, "w") as f:
+                    f.write(creds.to_json())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(TOKEN_PATH, "w") as f:
-            f.write(creds.to_json())
+            raise RuntimeError("Token Google expiré. Relance gen_auth_url.py.")
 
     return build("calendar", "v3", credentials=creds)
 

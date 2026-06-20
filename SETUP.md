@@ -1,70 +1,69 @@
-# Bastien Agent — Guide de démarrage
+# Bastien Agent — Guide complet
 
 ## Ce que fait ce bot
 
-Un assistant IA personnel sur Telegram qui :
+Assistant IA personnel sur Telegram qui :
+- Comprend le **langage naturel** en français
 - Lit et crée des événements dans ton **Google Calendar**
 - Gère tes **tâches** et **notes**
-- Envoie un **briefing automatique** chaque matin (météo + agenda + tâches)
-- Comprend le **langage naturel** en français
+- Envoie un **briefing automatique** chaque matin à 7h30 (météo + agenda + tâches)
 
 ---
 
-## Installation (5 étapes)
+## Étape 1 — Connecter Google Calendar (depuis ton ordinateur)
 
-### 1. Prérequis
-- Python 3.11+
-- Un compte Telegram
-- Un compte Google (pour Calendar)
-- Clés API : Anthropic + OpenWeatherMap (gratuit)
+Tu dois faire ça une seule fois depuis ta machine personnelle.
 
-### 2. Cloner et installer
-
+### Prérequis sur ton ordi
 ```bash
-git clone https://github.com/thefoxexe/bastienagent
-cd bastienagent
-pip install -r requirements.txt
+pip install google-auth-oauthlib python-dotenv
 ```
 
-### 3. Créer le fichier `.env`
-
-Copie `.env.example` en `.env` et remplis :
-
+### Lancer le script d'autorisation
 ```bash
-cp .env.example .env
+python gen_auth_url.py
 ```
 
-#### Obtenir le token Telegram :
-1. Ouvre Telegram → cherche **@BotFather**
-2. Envoie `/newbot` → suis les instructions
-3. Copie le token dans `TELEGRAM_BOT_TOKEN`
+Le script affiche une URL → ouvre-la dans ton navigateur → connecte-toi avec ton compte Google → autorise l'accès au calendrier.
 
-#### Obtenir ton Telegram User ID :
-1. Cherche **@userinfobot** sur Telegram
-2. Envoie `/start` → il affiche ton ID
-3. Copie-le dans `TELEGRAM_USER_ID`
+Le navigateur va ensuite essayer d'aller sur `http://localhost` (ça va échouer) → **copie l'URL complète depuis la barre d'adresse** et colle-la dans le terminal.
 
-#### Clé Anthropic (Claude AI) :
-- Va sur https://console.anthropic.com → API Keys
-- Copie dans `ANTHROPIC_API_KEY`
+Le script sauvegarde le token dans `google_token.json`.
 
-#### Clé OpenWeatherMap (météo, gratuit) :
-- Crée un compte sur https://openweathermap.org/api
-- Copie la clé gratuite dans `OPENWEATHER_API_KEY`
-
-### 4. Connecter Google Calendar
-
+### Récupérer le contenu du token
 ```bash
-python setup_google.py
+cat google_token.json
 ```
 
-Cela ouvre ton navigateur → connecte-toi avec ton compte Google → autorise l'accès.
+Copie tout le contenu JSON — tu en auras besoin à l'étape 3.
 
-### 5. Lancer le bot
+---
 
-```bash
-python -m bot.main
-```
+## Étape 2 — Déployer sur Railway (gratuit)
+
+Railway est la façon la plus simple de faire tourner le bot 24h/24.
+
+1. Va sur **railway.app** → crée un compte (gratuit)
+2. Clique **New Project → Deploy from GitHub repo**
+3. Connecte ton GitHub et sélectionne le repo `thefoxexe/bastienagent`
+4. Railway détecte automatiquement le `Procfile` et lance le bot
+
+---
+
+## Étape 3 — Configurer les variables d'environnement sur Railway
+
+Dans Railway → ton projet → **Variables**, ajoute :
+
+| Variable | Valeur |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Ton token BotFather |
+| `TELEGRAM_USER_ID` | Ton ID Telegram |
+| `ANTHROPIC_API_KEY` | Ta clé Anthropic |
+| `OPENWEATHER_API_KEY` | Ta clé OpenWeatherMap |
+| `CITY` | `Geneva` (ou ta ville) |
+| `TIMEZONE` | `Europe/Zurich` |
+| `BRIEFING_TIME` | `07:30` |
+| `GOOGLE_TOKEN_JSON` | Le contenu complet de `google_token.json` (tout le JSON) |
 
 ---
 
@@ -75,27 +74,16 @@ Parle naturellement à ton bot Telegram :
 | Ce que tu dis | Ce qui se passe |
 |---|---|
 | "Qu'est-ce que j'ai aujourd'hui ?" | Affiche ton agenda |
-| "Rdv dentiste mardi 10h" | Crée l'événement |
+| "Rdv dentiste mardi 10h" | Crée l'événement dans Google Calendar |
 | "Ajoute acheter du pain à ma liste" | Crée une tâche |
-| "Note : code wifi = abc123" | Sauve une note |
-| "Météo demain ?" | Affiche la météo |
-| "Montre mes tâches" | Liste tes tâches |
+| "Note : code wifi = abc123" | Sauvegarde une note |
+| "Météo demain ?" | Affiche la météo de Genève |
+| "Montre mes tâches" | Liste tes tâches en cours |
+| "Marque la tâche 3 comme faite" | Complète la tâche #3 |
 
 Commandes rapides :
+- `/start` — message d'accueil + aide
 - `/agenda` — agenda du jour
-- `/taches` — tâches en cours  
-- `/notes` — tes notes
-- `/briefing` — briefing complet maintenant
-
-Le briefing automatique arrive chaque matin à l'heure configurée dans `.env`.
-
----
-
-## Déploiement (pour que le bot tourne en permanence)
-
-Options recommandées :
-- **Railway** (gratuit jusqu'à 5$/mois de crédit) — le plus simple
-- **Render** (free tier disponible)
-- **VPS** (DigitalOcean, Hetzner, etc.)
-
-Sur Railway : connecte le repo GitHub → configure les variables d'env → deploy.
+- `/taches` — tâches en cours
+- `/notes` — tes notes récentes
+- `/briefing` — briefing complet maintenant (sans attendre 7h30)
