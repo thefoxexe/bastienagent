@@ -1,89 +1,65 @@
-# Bastien Agent — Guide complet
+# Bastien Agent — Guide de déploiement
 
 ## Ce que fait ce bot
 
-Assistant IA personnel sur Telegram qui :
-- Comprend le **langage naturel** en français
-- Lit et crée des événements dans ton **Google Calendar**
-- Gère tes **tâches** et **notes**
-- Envoie un **briefing automatique** chaque matin à 7h30 (météo + agenda + tâches)
+Assistant IA personnel sur Telegram :
+- Comprend le langage naturel en français
+- Lit et crée des événements Google Calendar
+- Gère tes tâches et notes
+- Envoie un briefing automatique chaque matin
 
 ---
 
-## Étape 1 — Connecter Google Calendar (depuis ton ordinateur)
+## Étape 1 — Déployer sur Railway
 
-Tu dois faire ça une seule fois depuis ta machine personnelle.
-
-### Prérequis sur ton ordi
-```bash
-pip install google-auth-oauthlib python-dotenv
-```
-
-### Lancer le script d'autorisation
-```bash
-python gen_auth_url.py
-```
-
-Le script affiche une URL → ouvre-la dans ton navigateur → connecte-toi avec ton compte Google → autorise l'accès au calendrier.
-
-Le navigateur va ensuite essayer d'aller sur `http://localhost` (ça va échouer) → **copie l'URL complète depuis la barre d'adresse** et colle-la dans le terminal.
-
-Le script sauvegarde le token dans `google_token.json`.
-
-### Récupérer le contenu du token
-```bash
-cat google_token.json
-```
-
-Copie tout le contenu JSON — tu en auras besoin à l'étape 3.
+1. Va sur **railway.app** → crée un compte gratuit
+2. **New Project → Deploy from GitHub repo**
+3. Connecte GitHub → sélectionne `thefoxexe/bastienagent`
+4. Railway détecte le `Procfile` et lance le bot
 
 ---
 
-## Étape 2 — Déployer sur Railway (gratuit)
-
-Railway est la façon la plus simple de faire tourner le bot 24h/24.
-
-1. Va sur **railway.app** → crée un compte (gratuit)
-2. Clique **New Project → Deploy from GitHub repo**
-3. Connecte ton GitHub et sélectionne le repo `thefoxexe/bastienagent`
-4. Railway détecte automatiquement le `Procfile` et lance le bot
-
----
-
-## Étape 3 — Configurer les variables d'environnement sur Railway
+## Étape 2 — Variables d'environnement sur Railway
 
 Dans Railway → ton projet → **Variables**, ajoute :
 
 | Variable | Valeur |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | Ton token BotFather |
-| `TELEGRAM_USER_ID` | Ton ID Telegram |
-| `ANTHROPIC_API_KEY` | Ta clé Anthropic |
-| `OPENWEATHER_API_KEY` | Ta clé OpenWeatherMap |
-| `CITY` | `Geneva` (ou ta ville) |
+| `TELEGRAM_BOT_TOKEN` | `8699880802:AAF35LN4...` |
+| `TELEGRAM_USER_ID` | `1421753924` |
+| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` |
+| `OPENWEATHER_API_KEY` | `b594981b5887f2f2...` |
+| `CITY` | `Geneva` |
 | `TIMEZONE` | `Europe/Zurich` |
 | `BRIEFING_TIME` | `07:30` |
-| `GOOGLE_TOKEN_JSON` | Le contenu complet de `google_token.json` (tout le JSON) |
+| `GOOGLE_CLIENT_ID` | `534121423593-t0vrb...` |
+| `GOOGLE_CLIENT_SECRET` | `GOCSPX-ylhlqZm...` |
 
 ---
 
-## Utilisation
+## Étape 3 — Récupérer l'URL publique de Railway
 
-Parle naturellement à ton bot Telegram :
+Une fois déployé, Railway donne une URL comme :
+`bastienagent-production.up.railway.app`
 
-| Ce que tu dis | Ce qui se passe |
-|---|---|
-| "Qu'est-ce que j'ai aujourd'hui ?" | Affiche ton agenda |
-| "Rdv dentiste mardi 10h" | Crée l'événement dans Google Calendar |
-| "Ajoute acheter du pain à ma liste" | Crée une tâche |
-| "Note : code wifi = abc123" | Sauvegarde une note |
-| "Météo demain ?" | Affiche la météo de Genève |
-| "Montre mes tâches" | Liste tes tâches en cours |
-| "Marque la tâche 3 comme faite" | Complète la tâche #3 |
+---
 
-Commandes rapides :
-- `/start` — message d'accueil + aide
-- `/agenda` — agenda du jour
-- `/taches` — tâches en cours
-- `/notes` — tes notes récentes
-- `/briefing` — briefing complet maintenant (sans attendre 7h30)
+## Étape 4 — Ajouter l'URL de callback Google
+
+1. Va sur **console.cloud.google.com/apis/credentials**
+2. Clique sur ton client OAuth → modifier (crayon)
+3. Sous "URI de redirection autorisés", ajoute :
+   `https://TON-URL.up.railway.app/oauth/callback`
+4. Enregistrer
+
+---
+
+## Étape 5 — Connecter Google Calendar (1 clic)
+
+1. Ouvre Telegram → ton bot
+2. Envoie `/connecter_calendar`
+3. Le bot t'envoie un bouton → clique dessus
+4. Connecte-toi avec Google → autorise
+5. Le bot te dit "✅ Google Calendar connecté !"
+
+**C'est tout. Le bot tourne 24h/24.**

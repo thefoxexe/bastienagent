@@ -17,13 +17,16 @@ def _get_service():
     # Priorité 1 : variable d'environnement (pour Railway/Render)
     token_json_env = os.getenv("GOOGLE_TOKEN_JSON")
     if token_json_env:
-        creds = Credentials.from_authorized_user_info(json.loads(token_json_env), SCOPES)
-    elif os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-    else:
+        try:
+            creds = Credentials.from_authorized_user_info(json.loads(token_json_env), SCOPES)
+        except Exception:
+            pass
+
+    # Priorité 2 : fichier local (généré par OAuth callback)
+    if creds is None:
         raise RuntimeError(
-            "Google Calendar pas encore connecté.\n"
-            "Lance python gen_auth_url.py depuis ton ordinateur."
+            "Google Calendar pas encore connecté. "
+            "Envoie /connecter_calendar au bot."
         )
 
     if not creds.valid:
