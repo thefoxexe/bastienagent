@@ -223,6 +223,26 @@ def generate_summary(text: str) -> str:
     return response.content[0].text.strip()
 
 
+def clean_journal_text(text: str) -> str:
+    """Réécrit une transcription orale en prose française claire et lisible."""
+    client = _get_client()
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": (
+            "Ce texte est une transcription d'un message vocal en français. "
+            "Réécris-le en prose claire et lisible, en corrigeant les répétitions, "
+            "les hésitations (\"euh\", \"genre\", \"tu vois\", \"je veux dire\", etc.), "
+            "les tournures orales et les phrases inachevées. "
+            "Garde le sens exact, le ton personnel et la première personne. "
+            "Ne résume pas — conserve tous les détails. "
+            "Retourne uniquement le texte réécrit, sans commentaire.\n\n"
+            f"Transcription :\n{text}"
+        )}],
+    )
+    return response.content[0].text.strip()
+
+
 def _time_greeting(hour: int) -> str:
     if hour < 12:
         return "Bonjour"

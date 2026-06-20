@@ -384,8 +384,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
     elif name == "journal_add":
         try:
             from services.google_docs import append_journal_entry
-            from services.claude_ai import generate_summary
-            content = params["content"]
+            from services.claude_ai import generate_summary, clean_journal_text
+            raw = params["content"]
+            content = clean_journal_text(raw)
             summary = generate_summary(content) if len(content) > 300 else None
             result = append_journal_entry(content=content, summary=summary)
             preview = content[:200] + ("..." if len(content) > 200 else "")
