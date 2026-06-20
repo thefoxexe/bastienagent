@@ -248,9 +248,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             try:
                 from services.google_docs import create_note_doc
                 from datetime import datetime
-                import pytz
-                tz = pytz.timezone(TIMEZONE)
-                now = datetime.now(tz)
+                now = datetime.now(pytz.timezone(TIMEZONE))
                 title = f"Note — {now.strftime('%d/%m/%Y %H:%M')}"
                 doc = create_note_doc(title=title, content=content)
                 doc_line = f"\n─────────────────\n[📄 Ouvrir dans Google Docs]({doc['url']})"
