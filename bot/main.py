@@ -111,7 +111,7 @@ async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_T
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,
-        "scope": "https://www.googleapis.com/auth/calendar",
+        "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks",
         "access_type": "offline",
         "prompt": "consent",
     })
@@ -285,7 +285,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         auth_url = "https://accounts.google.com/o/oauth2/auth?" + urlencode({
             "response_type": "code", "client_id": client_id,
             "redirect_uri": redirect_uri,
-            "scope": "https://www.googleapis.com/auth/calendar",
+            "scope": "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks",
             "access_type": "offline", "prompt": "consent",
         })
         from telegram import InlineKeyboardMarkup, InlineKeyboardButton
@@ -323,7 +323,10 @@ async def oauth_callback(request: web.Request) -> web.Response:
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "redirect_uris": [redirect_uri],
             }},
-            scopes=["https://www.googleapis.com/auth/calendar"],
+            scopes=[
+                "https://www.googleapis.com/auth/calendar",
+                "https://www.googleapis.com/auth/tasks",
+            ],
             redirect_uri=redirect_uri,
         )
         flow.fetch_token(code=code)
@@ -384,7 +387,6 @@ async def health(request: web.Request) -> web.Response:
 
 async def _run():
     global _telegram_app
-    from services.tasks_db import init_db
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -422,8 +424,6 @@ async def _run():
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
     logger.info(f"Serveur web démarré sur le port {PORT}")
-
-    await init_db()
 
     async with telegram_app:
         await telegram_app.start()

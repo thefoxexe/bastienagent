@@ -4,7 +4,7 @@ import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from services import tasks_db, google_calendar, weather as weather_svc
+from services import google_tasks, google_calendar, weather as weather_svc
 from services.claude_ai import generate_briefing_text
 
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Zurich")
@@ -111,9 +111,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "task_add":
         try:
-            task_id = await tasks_db.add_task(params["title"])
+            result = google_tasks.add_task(params["title"], params.get("due_iso"))
             await msg.reply_text(
-                f"✅ *Tâche ajoutée* · #{task_id}\n"
+                f"✅ *Tâche ajoutée dans Google Tasks*\n"
                 f"─────────────────\n"
                 f"📋 {params['title']}",
                 parse_mode="Markdown",
@@ -123,7 +123,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "task_list":
         try:
-            tasks = await tasks_db.list_tasks()
+            tasks = google_tasks.list_tasks()
             if not tasks:
                 await msg.reply_text(
                     "✅ *Tâches en cours*\n─────────────────\n_Aucune tâche — tout est à jour !_ 🎉",
@@ -140,17 +140,17 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "task_done":
         try:
-            ok = await tasks_db.complete_task(int(params["task_id"]))
+            ok = google_tasks.complete_task(int(params["task_id"]))
             if ok:
                 await msg.reply_text(f"✅ *Tâche #{params['task_id']} terminée !* 💪", parse_mode="Markdown")
             else:
-                await msg.reply_text(f"❌ Tâche #{params['task_id']} introuvable. Envoie /taches pour voir les IDs.")
+                await msg.reply_text(f"❌ Tâche #{params['task_id']} introuvable. Envoie /taches pour voir les numéros.")
         except Exception as e:
             await msg.reply_text(f"❌ Erreur : {e}")
 
     elif name == "task_delete":
         try:
-            ok = await tasks_db.delete_task(int(params["task_id"]))
+            ok = google_tasks.delete_task(int(params["task_id"]))
             if ok:
                 await msg.reply_text(f"🗑 Tâche #{params['task_id']} supprimée.", parse_mode="Markdown")
             else:
@@ -160,9 +160,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "note_add":
         try:
-            note_id = await tasks_db.add_note(params["content"])
+            google_tasks.add_note(params["content"])
             await msg.reply_text(
-                f"📝 *Note sauvegardée* · #{note_id}\n"
+                f"📝 *Note sauvegardée dans Google Tasks*\n"
                 f"─────────────────\n"
                 f"_{params['content']}_",
                 parse_mode="Markdown",
@@ -172,7 +172,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "note_list":
         try:
-            notes = await tasks_db.list_notes()
+            notes = google_tasks.list_notes()
             if not notes:
                 await msg.reply_text("📝 *Notes*\n─────────────────\n_Aucune note pour l'instant._", parse_mode="Markdown")
             else:
@@ -215,7 +215,10 @@ async def send_briefing(chat_id: int, context):
         events = google_calendar.get_events_today(TIMEZONE)
     except Exception:
         events = []
-    tasks = await tasks_db.list_tasks()
+    try:
+        tasks = google_tasks.list_tasks()
+    except Exception:
+        tasks = []
     text = generate_briefing_text(w, events, tasks, TIMEZONE)
     await context.bot.send_message(
         chat_id=chat_id,

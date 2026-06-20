@@ -40,7 +40,7 @@ Actions disponibles :
 - "calendar_read_days" : agenda N jours (params: {"days": int})
 - "calendar_create" : créer événement (params: {"title": str, "start_iso": str, "end_iso": str|null, "location": str, "description": str})
 - "calendar_delete" : supprimer événement (params: {"event_id": str})
-- "task_add" : ajouter tâche (params: {"title": str})
+- "task_add" : ajouter tâche (params: {"title": str, "due_iso": str|null})
 - "task_list" : lister tâches (params: {})
 - "task_done" : tâche terminée (params: {"task_id": int})
 - "task_delete" : supprimer tâche (params: {"task_id": int})

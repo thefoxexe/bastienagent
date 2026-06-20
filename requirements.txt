@@ -5,7 +5,6 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
 apscheduler==3.10.4
 aiosqlite==0.20.0
-asyncpg==0.29.0
 python-dotenv==1.0.1
 aiohttp==3.10.5
 pytz==2024.1
