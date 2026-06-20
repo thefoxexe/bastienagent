@@ -1,65 +1,69 @@
-# Bastien Agent — Guide de déploiement
+# Bastien Agent — Déploiement gratuit sur Render
 
-## Ce que fait ce bot
+## Étape 1 — Déployer sur Render (gratuit)
 
-Assistant IA personnel sur Telegram :
-- Comprend le langage naturel en français
-- Lit et crée des événements Google Calendar
-- Gère tes tâches et notes
-- Envoie un briefing automatique chaque matin
-
----
-
-## Étape 1 — Déployer sur Railway
-
-1. Va sur **railway.app** → crée un compte gratuit
-2. **New Project → Deploy from GitHub repo**
+1. Va sur **render.com** → crée un compte gratuit
+2. **New → Web Service**
 3. Connecte GitHub → sélectionne `thefoxexe/bastienagent`
-4. Railway détecte le `Procfile` et lance le bot
+4. Configure :
+   - **Name** : `bastienagent`
+   - **Branch** : `claude/personalized-ai-agent-7gvqw3`
+   - **Runtime** : `Python 3`
+   - **Build Command** : `pip install -r requirements.txt`
+   - **Start Command** : `python -m bot.main`
+   - **Plan** : `Free`
+5. Clique **Create Web Service**
 
 ---
 
-## Étape 2 — Variables d'environnement sur Railway
+## Étape 2 — Variables d'environnement sur Render
 
-Dans Railway → ton projet → **Variables**, ajoute :
+Dans Render → ton service → **Environment** → ajoute :
 
 | Variable | Valeur |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | `8699880802:AAF35LN4...` |
+| `TELEGRAM_BOT_TOKEN` | ton token |
 | `TELEGRAM_USER_ID` | `1421753924` |
-| `ANTHROPIC_API_KEY` | `sk-ant-api03-...` |
-| `OPENWEATHER_API_KEY` | `b594981b5887f2f2...` |
+| `ANTHROPIC_API_KEY` | ta clé |
+| `OPENWEATHER_API_KEY` | ta clé météo |
 | `CITY` | `Geneva` |
 | `TIMEZONE` | `Europe/Zurich` |
 | `BRIEFING_TIME` | `07:30` |
-| `GOOGLE_CLIENT_ID` | `534121423593-t0vrb...` |
-| `GOOGLE_CLIENT_SECRET` | `GOCSPX-ylhlqZm...` |
+| `GOOGLE_CLIENT_ID` | ton client ID Google |
+| `GOOGLE_CLIENT_SECRET` | ton secret Google |
+| `CRON_SECRET` | un mot de passe de ton choix (ex: `bastien2024`) |
 
 ---
 
-## Étape 3 — Récupérer l'URL publique de Railway
+## Étape 3 — Récupérer ton URL Render
 
-Une fois déployé, Railway donne une URL comme :
-`bastienagent-production.up.railway.app`
+Après le deploy, Render donne une URL comme :
+`https://bastienagent.onrender.com`
 
 ---
 
-## Étape 4 — Ajouter l'URL de callback Google
+## Étape 4 — Ajouter l'URL de callback dans Google Cloud
 
-1. Va sur **console.cloud.google.com/apis/credentials**
-2. Clique sur ton client OAuth → modifier (crayon)
-3. Sous "URI de redirection autorisés", ajoute :
-   `https://TON-URL.up.railway.app/oauth/callback`
+1. **console.cloud.google.com/apis/credentials**
+2. Clique sur ton client OAuth → modifier
+3. "URI de redirection autorisés" → ajoute :
+   `https://bastienagent.onrender.com/oauth/callback`
 4. Enregistrer
 
 ---
 
-## Étape 5 — Connecter Google Calendar (1 clic)
+## Étape 5 — Connecter Google Calendar (1 clic depuis Telegram)
 
-1. Ouvre Telegram → ton bot
-2. Envoie `/connecter_calendar`
-3. Le bot t'envoie un bouton → clique dessus
-4. Connecte-toi avec Google → autorise
-5. Le bot te dit "✅ Google Calendar connecté !"
+Dans Telegram, envoie `/connecter_calendar` → clique le bouton → autorise → c'est fait.
 
-**C'est tout. Le bot tourne 24h/24.**
+---
+
+## Étape 6 — Briefing automatique gratuit (cron-job.org)
+
+Pour que le briefing arrive chaque matin même si l'app dort :
+
+1. Va sur **cron-job.org** → crée un compte gratuit
+2. **Create cronjob** :
+   - URL : `https://bastienagent.onrender.com/cron/briefing?secret=bastien2024`
+   - Schedule : `30 7 * * *` (chaque jour à 7h30)
+3. Save
