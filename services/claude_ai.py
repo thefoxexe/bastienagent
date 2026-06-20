@@ -54,7 +54,7 @@ Actions disponibles :
 - "expense_list" : voir le résumé des dépenses (params: {"period": "today"|"week"|"month"|"year"})
 - "settings" : afficher les paramètres du bot (params: {})
 - "currency_convert" : convertir un montant entre devises (params: {"amount": float, "from_currency": str, "to_currency": str})
-- "journal_add" : ajouter une entrée au journal personnel (params: {"content": str})
+- "journal_add" : ajouter une entrée au journal personnel — utilise si l'utilisateur décrit sa journée, ce qu'il a fait, ses activités, son humeur, ses plans, ou fait un bilan (params: {"content": str})
 - "idea_add" : sauvegarder une idée (params: {"content": str})
 - "idea_list" : voir toutes les idées sauvegardées (params: {})
 - "write_assist" : rédiger un texte (email, message, lettre...) à la place de l'utilisateur — le champ "reply" contient le texte complet rédigé, prêt à copier. (params: {"type": str, "context": str})

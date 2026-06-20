@@ -202,7 +202,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             amount = float(clean)
             from services import google_sheets
             google_sheets.set_budget(amount)
-            context.user_data.pop("waiting_for")
+            context.user_data.pop("waiting_for", None)
+            context.user_data.pop("waiting_message_id", None)
             await update.message.reply_text(
                 f"✅ *Budget mensuel défini : {amount:.0f} CHF*\n"
                 f"Je t'alerterai quand tu approches de ce montant.",
@@ -213,19 +214,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get("waiting_for") == "journal":
-        context.user_data.pop("waiting_for")
+        context.user_data.pop("waiting_for", None)
+        context.user_data.pop("waiting_message_id", None)
         from bot.handlers.dispatcher import dispatch_all
         await dispatch_all([{"action": "journal_add", "params": {"content": user_text}, "reply": ""}], update, context)
         return
 
     if context.user_data.get("waiting_for") == "idea":
-        context.user_data.pop("waiting_for")
+        context.user_data.pop("waiting_for", None)
+        context.user_data.pop("waiting_message_id", None)
         from bot.handlers.dispatcher import dispatch_all
         await dispatch_all([{"action": "idea_add", "params": {"content": user_text}, "reply": ""}], update, context)
         return
 
     if context.user_data.get("waiting_for") == "write_assist":
-        context.user_data.pop("waiting_for")
+        context.user_data.pop("waiting_for", None)
+        context.user_data.pop("waiting_message_id", None)
         await _process_text(f"Aide-moi à rédiger : {user_text}", update, context)
         return
 
@@ -244,55 +248,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Erreur : {e}")
 
 
+async def _set_waiting(context: ContextTypes.DEFAULT_TYPE, state: str, chat_id: int, text: str) -> None:
+    """Efface le précédent message d'attente et définit un nouvel état."""
+    prev_id = context.user_data.get("waiting_message_id")
+    if prev_id and context.user_data.get("waiting_for"):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=prev_id)
+        except Exception:
+            pass
+    sent = await context.bot.send_message(chat_id, text, parse_mode="Markdown")
+    context.user_data["waiting_for"] = state
+    context.user_data["waiting_message_id"] = sent.message_id
+
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_authorized(update):
         return
-    wait_msg = await update.message.reply_text("🎙️ _J'écoute..._", parse_mode="Markdown")
+    voice_obj = update.message.voice or update.message.audio
+    duration = getattr(voice_obj, "duration", 0) or 0
+    if duration > 45:
+        wait_msg = await update.message.reply_text("🎙️ _Transcription en cours (message long)..._", parse_mode="Markdown")
+    else:
+        wait_msg = await update.message.reply_text("🎙️ _J'écoute..._", parse_mode="Markdown")
     try:
-        text, duration = await _transcribe_voice(update, context)
+        text, _ = await _transcribe_voice(update, context)
         if not text:
             await wait_msg.edit_text("❌ Je n'ai pas pu comprendre. Parle plus fort ou réessaie.")
             return
 
-        if duration > 45:
-            # Note vocale longue → résumé + Google Doc
-            await wait_msg.edit_text("🎙️ _Transcription terminée, je génère le résumé..._", parse_mode="Markdown")
-            from services.claude_ai import generate_summary
-            from services.google_docs import create_note_doc
-            from datetime import datetime
-            import pytz
+        await wait_msg.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
 
-            summary = generate_summary(text)
-            tz = pytz.timezone(os.getenv("TIMEZONE", "Europe/Zurich"))
-            now = datetime.now(tz)
-            title = f"Note vocale — {now.strftime('%d/%m/%Y %H:%M')}"
-
-            doc = create_note_doc(title=title, content=text, summary=summary)
-
-            await wait_msg.edit_text(
-                f"🎙️ *Note vocale sauvegardée dans Google Docs*\n"
-                f"─────────────────\n"
-                f"📋 *Résumé :*\n_{summary}_\n"
-                f"─────────────────\n"
-                f"[📄 Ouvrir le document]({doc['url']})",
-                parse_mode="Markdown",
-            )
+        waiting = context.user_data.get("waiting_for")
+        if waiting == "journal":
+            context.user_data.pop("waiting_for", None)
+            context.user_data.pop("waiting_message_id", None)
+            from bot.handlers.dispatcher import dispatch_all
+            await dispatch_all([{"action": "journal_add", "params": {"content": text}, "reply": ""}], update, context)
+        elif waiting == "idea":
+            context.user_data.pop("waiting_for", None)
+            context.user_data.pop("waiting_message_id", None)
+            from bot.handlers.dispatcher import dispatch_all
+            await dispatch_all([{"action": "idea_add", "params": {"content": text}, "reply": ""}], update, context)
+        elif waiting == "write_assist":
+            context.user_data.pop("waiting_for", None)
+            context.user_data.pop("waiting_message_id", None)
+            await _process_text(f"Aide-moi à rédiger : {text}", update, context)
         else:
-            await wait_msg.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
-            waiting = context.user_data.get("waiting_for")
-            if waiting == "journal":
-                context.user_data.pop("waiting_for")
-                from bot.handlers.dispatcher import dispatch_all
-                await dispatch_all([{"action": "journal_add", "params": {"content": text}, "reply": ""}], update, context)
-            elif waiting == "idea":
-                context.user_data.pop("waiting_for")
-                from bot.handlers.dispatcher import dispatch_all
-                await dispatch_all([{"action": "idea_add", "params": {"content": text}, "reply": ""}], update, context)
-            elif waiting == "write_assist":
-                context.user_data.pop("waiting_for")
-                await _process_text(f"Aide-moi à rédiger : {text}", update, context)
-            else:
-                await _process_text(text, update, context)
+            await _process_text(text, update, context)
     except Exception as e:
         logger.error(f"Erreur vocal : {e}", exc_info=True)
         await wait_msg.edit_text(f"⚠️ Erreur transcription : {e}")
@@ -465,20 +467,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text(f"❌ Erreur : {e}")
 
     elif query.data == "set_budget":
-        context.user_data["waiting_for"] = "budget"
-        await context.bot.send_message(
-            chat_id,
-            "💰 *Quel est ton budget mensuel en CHF ?*\n_Envoie juste le montant (ex: 2000)_",
-            parse_mode="Markdown",
-        )
+        await _set_waiting(context, "budget", chat_id,
+            "💰 *Quel est ton budget mensuel en CHF ?*\n_Envoie juste le montant (ex: 2000)_")
 
     elif query.data == "outils_journal":
-        context.user_data["waiting_for"] = "journal"
-        await context.bot.send_message(
-            chat_id,
-            "📓 _Raconte-moi ta journée ou ce que tu veux noter..._\n_(tu peux aussi envoyer un vocal)_",
-            parse_mode="Markdown",
-        )
+        await _set_waiting(context, "journal", chat_id,
+            "📓 _Raconte-moi ta journée ou ce que tu veux noter..._\n_(tu peux aussi envoyer un vocal)_")
 
     elif query.data == "outils_ideas":
         try:
@@ -501,12 +495,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id, f"❌ Erreur : {e}")
 
     elif query.data == "outils_write":
-        context.user_data["waiting_for"] = "write_assist"
-        await context.bot.send_message(
-            chat_id,
-            "✍️ _Qu'est-ce que tu veux rédiger ?_\n_Décris-moi le contexte (ex: un email à mon patron pour demander des vacances)_",
-            parse_mode="Markdown",
-        )
+        await _set_waiting(context, "write_assist", chat_id,
+            "✍️ _Qu'est-ce que tu veux rédiger ?_\n_Décris-moi le contexte (ex: un email à mon patron pour demander des vacances)_")
 
     elif query.data == "connecter_calendar":
         client_id = os.getenv("GOOGLE_CLIENT_ID")
