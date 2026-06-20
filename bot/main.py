@@ -5,7 +5,7 @@ import logging
 from aiohttp import web
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 load_dotenv()
 
@@ -138,17 +138,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_authorized(update):
         return
-    await update.message.chat.send_action("typing")
+    # Message d'attente immédiat
+    wait_msg = await update.message.reply_text("🎙️ _J'écoute..._", parse_mode="Markdown")
     try:
         text = await _transcribe_voice(update, context)
         if not text:
-            await update.message.reply_text("❌ Je n'ai pas pu comprendre le message vocal. Réessaie.")
+            await wait_msg.edit_text("❌ Je n'ai pas pu comprendre. Parle plus fort ou réessaie.")
             return
-        await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
+        # Remplacer le message d'attente par la transcription
+        await wait_msg.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
         await _process_text(text, update, context)
     except Exception as e:
         logger.error(f"Erreur vocal : {e}", exc_info=True)
-        await update.message.reply_text(f"⚠️ Erreur transcription : {e}")
+        await wait_msg.edit_text(f"⚠️ Erreur transcription : {e}")
 
 
 async def _transcribe_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -187,6 +189,72 @@ async def _transcribe_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 # ── Routes web ─────────────────────────────────────────────────────────────────
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gère les boutons inline (briefing, erreurs calendrier)."""
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+
+    action_map = {
+        "agenda": "calendar_read_today",
+        "taches": "task_list",
+        "notes": "note_list",
+    }
+
+    if query.data in action_map:
+        from bot.handlers.dispatcher import dispatch as _dispatch
+        from services import tasks_db, google_calendar, weather as weather_svc
+
+        action_name = action_map[query.data]
+        try:
+            if action_name == "calendar_read_today":
+                events = google_calendar.get_events_today(os.getenv("TIMEZONE", "Europe/Zurich"))
+                text = google_calendar.format_events_text(events, os.getenv("TIMEZONE", "Europe/Zurich"))
+                await context.bot.send_message(chat_id, f"📅 *Agenda d'aujourd'hui*\n{text}", parse_mode="Markdown")
+            elif action_name == "task_list":
+                tasks = await tasks_db.list_tasks()
+                if not tasks:
+                    await context.bot.send_message(chat_id, "🎉 Aucune tâche en cours !")
+                else:
+                    lines = "\n".join(f"• #{t['id']} {t['title']}" for t in tasks)
+                    await context.bot.send_message(chat_id, f"📋 *Tâches en cours :*\n{lines}", parse_mode="Markdown")
+            elif action_name == "note_list":
+                notes = await tasks_db.list_notes()
+                if not notes:
+                    await context.bot.send_message(chat_id, "📝 Aucune note.")
+                else:
+                    lines = "\n".join(f"• #{n['id']} {n['content']}" for n in notes)
+                    await context.bot.send_message(chat_id, f"📝 *Tes notes :*\n{lines}", parse_mode="Markdown")
+        except Exception as e:
+            if "pas encore connecté" in str(e):
+                from bot.handlers.dispatcher import _CALENDAR_ERROR_KEYBOARD
+                await context.bot.send_message(
+                    chat_id,
+                    "📅 Google Calendar n'est pas connecté.",
+                    reply_markup=_CALENDAR_ERROR_KEYBOARD,
+                )
+            else:
+                await context.bot.send_message(chat_id, f"❌ Erreur : {e}")
+
+    elif query.data == "connecter_calendar":
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        base_url = _get_base_url()
+        redirect_uri = f"{base_url}/oauth/callback"
+        from urllib.parse import urlencode
+        auth_url = "https://accounts.google.com/o/oauth2/auth?" + urlencode({
+            "response_type": "code", "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "https://www.googleapis.com/auth/calendar",
+            "access_type": "offline", "prompt": "consent",
+        })
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        await context.bot.send_message(
+            chat_id,
+            "Clique pour connecter Google Calendar :",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Connecter", url=auth_url)]]),
+        )
+
 
 async def handle_telegram_webhook(request: web.Request) -> web.Response:
     try:
@@ -231,9 +299,18 @@ async def oauth_callback(request: web.Request) -> web.Response:
         with open("google_token.json", "w") as f:
             json.dump(token_data, f)
         if _telegram_app and ALLOWED_USER_ID:
+            token_json_str = json.dumps(token_data)
             await _telegram_app.bot.send_message(
                 chat_id=ALLOWED_USER_ID,
-                text="✅ Google Calendar connecté ! Essaie /agenda",
+                text="✅ *Google Calendar connecté !*\n\n"
+                     "⚠️ *Action requise pour que ça reste connecté après redémarrage :*\n"
+                     "1. Va sur Render → ton service → *Environment*\n"
+                     "2. Ajoute une variable :\n"
+                     "   Nom : `GOOGLE_TOKEN_JSON`\n"
+                     "   Valeur : le JSON ci-dessous\n"
+                     "3. Clique *Save Changes*\n\n"
+                     f"`{token_json_str}`",
+                parse_mode="Markdown",
             )
         return web.Response(
             text='<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
@@ -290,6 +367,7 @@ async def _run():
     telegram_app.add_handler(CommandHandler("briefing", cmd_briefing))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
+    telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
     # Démarrer le serveur web
     web_app = web.Application()
