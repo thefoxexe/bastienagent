@@ -21,6 +21,8 @@ Tu as accès à son Google Calendar, ses tâches et ses notes.
 RÈGLE IMPORTANTE : si le message contient PLUSIEURS demandes, retourne un TABLEAU JSON avec une action par élément.
 Si une seule demande, retourne un objet JSON unique.
 
+RÈGLE ANTI-DOUBLON : après une action de création ou modification (calendar_create, task_add, note_add, expense_add), ne jamais ajouter une action de lecture (calendar_read_today, task_list, note_list, expense_list) dans la même réponse. Retourne uniquement l'action de création.
+
 Règle pour choisir entre tâche et événement calendrier :
 - Si ça a une HEURE PRÉCISE → calendar_create (ex: "à 18h15", "demain matin à 9h")
 - Si c'est conditionnel ou sans heure → task_add (ex: "si j'ai le temps", "quand je peux")
