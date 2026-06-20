@@ -234,6 +234,68 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait_msg.edit_text(f"⚠️ Erreur transcription : {e}")
 
 
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
+    wait_msg = await update.message.reply_text("🧾 _J'analyse la quittance..._", parse_mode="Markdown")
+    try:
+        import io
+        from services.claude_ai import parse_receipt
+        from services import google_sheets
+        from bot.handlers.dispatcher import _cat_emoji
+
+        photo = update.message.photo[-1]  # résolution maximale
+        tg_file = await context.bot.get_file(photo.file_id)
+        buf = io.BytesIO()
+        await tg_file.download_to_memory(buf)
+        image_bytes = buf.getvalue()
+
+        data = parse_receipt(image_bytes)
+
+        if not data or data.get("amount") is None:
+            await wait_msg.edit_text(
+                "❌ Je n'ai pas pu lire le montant sur cette image.\n"
+                "_Essaie avec une photo plus nette, bien cadrée sur le total._",
+                parse_mode="Markdown",
+            )
+            return
+
+        result = google_sheets.add_expense(
+            amount=float(data["amount"]),
+            category=data.get("category", "Autre"),
+            description=data.get("description", "Quittance"),
+            date_iso=data.get("date_iso"),
+        )
+
+        warning = ""
+        try:
+            summary = google_sheets.get_summary("month")
+            budget = summary.get("budget")
+            if budget:
+                pct = (summary["total"] / budget) * 100
+                if pct >= 100:
+                    warning = f"\n\n🔴 *Budget dépassé !* {summary['total']:.2f}/{budget:.0f} CHF"
+                elif pct >= 80:
+                    warning = f"\n\n⚠️ Budget à *{pct:.0f}%* — {summary['total']:.2f}/{budget:.0f} CHF"
+        except Exception:
+            pass
+
+        await wait_msg.edit_text(
+            f"💸 *Dépense extraite automatiquement*\n"
+            f"─────────────────\n"
+            f"{_cat_emoji(result['category'])} {result['category']}\n"
+            f"💰 *{result['amount']:.2f} CHF*  ·  {result['date']}\n"
+            f"📝 _{data.get('description', '')}_"
+            f"{warning}\n"
+            f"─────────────────\n"
+            f"[📊 Google Sheet]({result['sheet_url']})",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logger.error(f"Erreur photo quittance : {e}", exc_info=True)
+        await wait_msg.edit_text(f"❌ Erreur lors de l'analyse : {e}")
+
+
 async def _transcribe_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
     import tempfile
     import speech_recognition as sr
@@ -480,6 +542,7 @@ async def _run():
     telegram_app.add_handler(CommandHandler("briefing", cmd_briefing))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
+    telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
     # Démarrer le serveur web

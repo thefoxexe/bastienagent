@@ -91,7 +91,53 @@ def parse_message(user_message: str, conversation_history: list = None) -> list[
         return [{"action": "chat", "params": {}, "reply": raw}]
 
 
-def generate_briefing_text(
+def parse_receipt(image_bytes: bytes) -> dict | None:
+    """Analyse une photo de quittance/facture et retourne les données de dépense."""
+    import base64
+
+    client = _get_client()
+
+    # Détecte le format image
+    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        media_type = "image/png"
+    elif image_bytes[:4] == b'%PDF':
+        return None  # PDF non supporté sans conversion
+    else:
+        media_type = "image/jpeg"
+
+    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=256,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "C'est une quittance, facture ou reçu. "
+                        "Extrais les informations et retourne UNIQUEMENT ce JSON (sans markdown) :\n"
+                        "{\"amount\": float|null, \"category\": string, \"description\": string, \"date_iso\": string|null}\n"
+                        "amount = montant TOTAL TTC en chiffres (null si illisible).\n"
+                        "category = Restaurant|Café|Courses|Transport|Loisirs|Santé|Shopping|Abonnements|Logement|Autre\n"
+                        "description = nom du commerce ou type d'achat, max 50 caractères.\n"
+                        "date_iso = date ISO 8601 si visible sur le reçu, sinon null."
+                    ),
+                },
+            ],
+        }],
+    )
+
+    raw = response.content[0].text.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
     weather: str,
     events: list[dict],
     tasks: list[dict],
