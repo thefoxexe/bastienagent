@@ -15,42 +15,48 @@ def _get_client() -> anthropic.Anthropic:
 
 
 SYSTEM_PROMPT = """Tu es l'assistant personnel de Bastien Ryser, disponible via Telegram.
-Tu parles principalement en français, tu es concis et direct.
+Tu parles en français, tu es concis et chaleureux.
 Tu as accès à son Google Calendar, ses tâches et ses notes.
 
-Quand l'utilisateur te parle, tu dois analyser son message et retourner un JSON structuré indiquant quelle action effectuer.
+RÈGLE IMPORTANTE : si le message contient PLUSIEURS demandes, retourne un TABLEAU JSON avec une action par élément.
+Si une seule demande, retourne un objet JSON unique.
 
-Format de réponse JSON OBLIGATOIRE :
+Règle pour choisir entre tâche et événement calendrier :
+- Si ça a une HEURE PRÉCISE → calendar_create (ex: "à 18h15", "demain matin à 9h")
+- Si c'est conditionnel ou sans heure → task_add (ex: "si j'ai le temps", "quand je peux")
+- Si c'est une DATE sans heure → task_add avec la date dans le titre
+
+Format d'une action :
 {
-  "action": "string",  // voir liste ci-dessous
-  "params": {},        // paramètres spécifiques à l'action
-  "reply": "string"    // message à afficher à l'utilisateur (confirmation, réponse, etc.)
+  "action": "string",
+  "params": {},
+  "reply": "string"
 }
 
 Actions disponibles :
-- "chat" : simple conversation, aucune action système (params: {})
-- "calendar_read_today" : voir les événements d'aujourd'hui (params: {})
-- "calendar_read_week" : voir les événements de la semaine (params: {})
-- "calendar_read_days" : voir les événements sur N jours (params: {"days": int})
-- "calendar_create" : créer un événement (params: {"title": str, "start_iso": str, "end_iso": str|null, "location": str, "description": str})
-- "calendar_delete" : supprimer un événement (params: {"event_id": str})
-- "task_add" : ajouter une tâche (params: {"title": str})
-- "task_list" : lister les tâches (params: {})
-- "task_done" : marquer une tâche comme faite (params: {"task_id": int})
-- "task_delete" : supprimer une tâche (params: {"task_id": int})
-- "note_add" : ajouter une note (params: {"content": str})
-- "note_list" : lister les notes (params: {})
-- "weather" : voir la météo (params: {"city": str|null})
-- "briefing" : déclencher le briefing du matin maintenant (params: {})
+- "chat" : conversation (params: {})
+- "calendar_read_today" : agenda aujourd'hui (params: {})
+- "calendar_read_week" : agenda semaine (params: {})
+- "calendar_read_days" : agenda N jours (params: {"days": int})
+- "calendar_create" : créer événement (params: {"title": str, "start_iso": str, "end_iso": str|null, "location": str, "description": str})
+- "calendar_delete" : supprimer événement (params: {"event_id": str})
+- "task_add" : ajouter tâche (params: {"title": str})
+- "task_list" : lister tâches (params: {})
+- "task_done" : tâche terminée (params: {"task_id": int})
+- "task_delete" : supprimer tâche (params: {"task_id": int})
+- "note_add" : ajouter note (params: {"content": str})
+- "note_list" : lister notes (params: {})
+- "weather" : météo (params: {"city": str|null})
+- "briefing" : briefing complet (params: {})
 
-Pour les dates/heures, utilise le format ISO 8601 avec timezone (ex: "2024-01-15T14:30:00+01:00").
-La date et heure actuelle est : {current_datetime}
-Fuseau horaire : Europe/Zurich.
+Dates/heures : format ISO 8601 avec timezone (ex: "2026-07-04T18:15:00+02:00").
+Date et heure actuelle : {current_datetime}
+Fuseau horaire : Europe/Zurich (UTC+2 en été).
 
-IMPORTANT : retourne UNIQUEMENT le JSON, sans texte avant ou après, sans markdown."""
+IMPORTANT : retourne UNIQUEMENT le JSON (objet ou tableau), sans texte ni markdown."""
 
 
-def parse_message(user_message: str, conversation_history: list = None) -> dict:
+def parse_message(user_message: str, conversation_history: list = None) -> list[dict]:
     tz = pytz.timezone("Europe/Zurich")
     now = datetime.now(tz).strftime("%Y-%m-%dT%H:%M:%S%z")
     system = SYSTEM_PROMPT.replace("{current_datetime}", now)
@@ -70,9 +76,13 @@ def parse_message(user_message: str, conversation_history: list = None) -> dict:
 
     raw = response.content[0].text.strip()
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        # Normalise toujours en liste
+        if isinstance(parsed, dict):
+            return [parsed]
+        return parsed
     except json.JSONDecodeError:
-        return {"action": "chat", "params": {}, "reply": raw}
+        return [{"action": "chat", "params": {}, "reply": raw}]
 
 
 def generate_briefing_text(
@@ -84,24 +94,20 @@ def generate_briefing_text(
     tz = pytz.timezone(timezone)
     now = datetime.now(tz)
     day_fr = {
-        "Monday": "Lundi",
-        "Tuesday": "Mardi",
-        "Wednesday": "Mercredi",
-        "Thursday": "Jeudi",
-        "Friday": "Vendredi",
-        "Saturday": "Samedi",
-        "Sunday": "Dimanche",
+        "Monday": "Lundi", "Tuesday": "Mardi", "Wednesday": "Mercredi",
+        "Thursday": "Jeudi", "Friday": "Vendredi", "Saturday": "Samedi", "Sunday": "Dimanche",
     }
     month_fr = {
-        1: "janvier", 2: "février", 3: "mars", 4: "avril",
-        5: "mai", 6: "juin", 7: "juillet", 8: "août",
-        9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre",
+        1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
+        7: "juillet", 8: "août", 9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre",
     }
     day_name = day_fr[now.strftime("%A")]
     date_str = f"{day_name} {now.day} {month_fr[now.month]} {now.year}"
+    greeting = _time_greeting(now.hour)
 
-    events_text = ""
+    # Agenda
     if events:
+        event_lines = []
         for e in events:
             if e["all_day"]:
                 time_str = "Toute la journée"
@@ -110,29 +116,33 @@ def generate_briefing_text(
                     dt = datetime.fromisoformat(e["start"]).astimezone(tz)
                     time_str = dt.strftime("%H:%M")
                 except Exception:
-                    time_str = e["start"]
-            loc = f" ({e['location']})" if e["location"] else ""
-            events_text += f"  • {time_str} — {e['title']}{loc}\n"
+                    time_str = ""
+            loc = f"  📍 _{e['location']}_" if e["location"] else ""
+            event_lines.append(f"  `{time_str}`  {e['title']}{loc}")
+        events_block = "\n".join(event_lines)
     else:
-        events_text = "  Aucun événement aujourd'hui.\n"
+        events_block = "  _Rien de prévu — journée libre !_"
 
-    tasks_text = ""
+    # Tâches
     if tasks:
-        for t in tasks[:5]:
-            tasks_text += f"  • {t['title']}\n"
+        task_lines = [f"  ◦ {t['title']}" for t in tasks[:5]]
         if len(tasks) > 5:
-            tasks_text += f"  ... et {len(tasks) - 5} autres\n"
+            task_lines.append(f"  _... et {len(tasks) - 5} autres_")
+        tasks_block = "\n".join(task_lines)
     else:
-        tasks_text = "  Aucune tâche en cours. 🎉\n"
+        tasks_block = "  _Aucune tâche — tout est à jour !_ 🎉"
 
-    greeting = _time_greeting(now.hour)
+    sep = "─────────────────"
 
     return (
-        f"🌅 *{greeting}, Bastien !*\n"
-        f"📅 *{date_str}*\n\n"
-        f"🌤 *Météo*\n{weather}\n\n"
-        f"📆 *Agenda du jour*\n{events_text}\n"
-        f"✅ *Tâches en cours*\n{tasks_text}"
+        f"{'🌅' if now.hour < 12 else '🌇' if now.hour < 18 else '🌙'} *{greeting}, Bastien !*\n"
+        f"📅 {date_str}\n"
+        f"{sep}\n"
+        f"🌤 *Météo*\n  {weather}\n"
+        f"{sep}\n"
+        f"📆 *Agenda du jour*\n{events_block}\n"
+        f"{sep}\n"
+        f"✅ *Tâches*\n{tasks_block}"
     )
 
 

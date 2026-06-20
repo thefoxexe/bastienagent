@@ -153,13 +153,14 @@ async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _process_text(user_text: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Traite un message texte (venant d'un texte ou d'un vocal transcrit)."""
     from services.claude_ai import parse_message
-    from bot.handlers.dispatcher import dispatch
+    from bot.handlers.dispatcher import dispatch_all
     history = context.user_data.get("history", [])
-    action = parse_message(user_text, history)
+    actions = parse_message(user_text, history)
     history.append({"role": "user", "content": user_text})
-    history.append({"role": "assistant", "content": action.get("reply", "")})
+    reply_summary = " | ".join(a.get("reply", "") for a in actions if a.get("reply"))
+    history.append({"role": "assistant", "content": reply_summary})
     context.user_data["history"] = history[-12:]
-    await dispatch(action, update, context)
+    await dispatch_all(actions, update, context)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

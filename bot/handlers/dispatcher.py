@@ -1,4 +1,3 @@
-"""Routes parsed AI actions to the right service calls."""
 import os
 from datetime import datetime
 import pytz
@@ -23,11 +22,10 @@ _BRIEFING_KEYBOARD = InlineKeyboardMarkup([
 ])
 
 
-def _calendar_error_msg(e: Exception) -> str:
-    msg = str(e)
-    if "pas encore connecté" in msg or "connecter_calendar" in msg:
-        return None  # handled specially
-    return f"❌ Erreur calendrier : {msg}"
+async def dispatch_all(actions: list[dict], update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Exécute une liste d'actions en séquence."""
+    for action in actions:
+        await dispatch(action, update, context)
 
 
 async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -46,13 +44,30 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 title = "Agenda d'aujourd'hui"
             elif name == "calendar_read_week":
                 events = google_calendar.get_events_for_period(7, TIMEZONE)
-                title = "Agenda de la semaine"
+                title = "Agenda — 7 jours"
             else:
                 days = int(params.get("days", 3))
                 events = google_calendar.get_events_for_period(days, TIMEZONE)
-                title = f"Agenda ({days} jours)"
-            text = google_calendar.format_events_text(events, TIMEZONE)
-            await msg.reply_text(f"📅 *{title}*\n{text}", parse_mode="Markdown")
+                title = f"Agenda — {days} jours"
+
+            tz = pytz.timezone(TIMEZONE)
+            if not events:
+                text = f"📅 *{title}*\n─────────────────\n_Rien de prévu !_ 🎉"
+            else:
+                lines = []
+                for e in events:
+                    if e["all_day"]:
+                        time_str = "Toute la journée"
+                    else:
+                        try:
+                            dt = datetime.fromisoformat(e["start"]).astimezone(tz)
+                            time_str = dt.strftime("%H:%M")
+                        except Exception:
+                            time_str = "?"
+                    loc = f"\n    📍 _{e['location']}_" if e["location"] else ""
+                    lines.append(f"`{time_str}`  {e['title']}{loc}")
+                text = f"📅 *{title}*\n─────────────────\n" + "\n".join(lines)
+            await msg.reply_text(text, parse_mode="Markdown")
         except Exception as e:
             await _send_calendar_error(msg, e)
 
@@ -70,9 +85,13 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 description=params.get("description", ""),
                 timezone=TIMEZONE,
             )
+            date_str = start_dt.strftime("%d/%m/%Y")
+            time_str = start_dt.strftime("%H:%M")
             await msg.reply_text(
-                f"✅ Événement créé : *{result['title']}*\n"
-                f"🕐 {start_dt.strftime('%d/%m/%Y à %H:%M')}",
+                f"✅ *Événement ajouté au calendrier*\n"
+                f"─────────────────\n"
+                f"📌 {result['title']}\n"
+                f"🗓 {date_str} à {time_str}",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -82,9 +101,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             ok = google_calendar.delete_event(params.get("event_id", ""))
             if ok:
-                await msg.reply_text("✅ Événement supprimé.")
+                await msg.reply_text("🗑 *Événement supprimé.*", parse_mode="Markdown")
             else:
-                await msg.reply_text("❌ Événement introuvable. Vérifie l'ID.")
+                await msg.reply_text("❌ Événement introuvable.")
         except Exception as e:
             await _send_calendar_error(msg, e)
 
@@ -92,7 +111,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             task_id = await tasks_db.add_task(params["title"])
             await msg.reply_text(
-                f"✅ Tâche ajoutée : *{params['title']}* (#{task_id})",
+                f"✅ *Tâche ajoutée* · #{task_id}\n"
+                f"─────────────────\n"
+                f"📋 {params['title']}",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -102,10 +123,16 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             tasks = await tasks_db.list_tasks()
             if not tasks:
-                await msg.reply_text("🎉 Aucune tâche en cours, tu es à jour !")
+                await msg.reply_text(
+                    "✅ *Tâches en cours*\n─────────────────\n_Aucune tâche — tout est à jour !_ 🎉",
+                    parse_mode="Markdown",
+                )
             else:
-                lines = "\n".join(f"• #{t['id']} {t['title']}" for t in tasks)
-                await msg.reply_text(f"📋 *Tâches en cours :*\n{lines}", parse_mode="Markdown")
+                lines = [f"  `#{t['id']}`  {t['title']}" for t in tasks]
+                await msg.reply_text(
+                    f"📋 *Tâches en cours* ({len(tasks)})\n─────────────────\n" + "\n".join(lines),
+                    parse_mode="Markdown",
+                )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible de lire les tâches : {e}")
 
@@ -113,7 +140,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             ok = await tasks_db.complete_task(int(params["task_id"]))
             if ok:
-                await msg.reply_text(f"✅ Tâche #{params['task_id']} terminée ! Bien joué 💪")
+                await msg.reply_text(f"✅ *Tâche #{params['task_id']} terminée !* 💪", parse_mode="Markdown")
             else:
                 await msg.reply_text(f"❌ Tâche #{params['task_id']} introuvable. Envoie /taches pour voir les IDs.")
         except Exception as e:
@@ -123,7 +150,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             ok = await tasks_db.delete_task(int(params["task_id"]))
             if ok:
-                await msg.reply_text(f"🗑️ Tâche #{params['task_id']} supprimée.")
+                await msg.reply_text(f"🗑 Tâche #{params['task_id']} supprimée.", parse_mode="Markdown")
             else:
                 await msg.reply_text(f"❌ Tâche #{params['task_id']} introuvable.")
         except Exception as e:
@@ -133,7 +160,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             note_id = await tasks_db.add_note(params["content"])
             await msg.reply_text(
-                f"📝 Note sauvegardée (#{note_id}) :\n_{params['content']}_",
+                f"📝 *Note sauvegardée* · #{note_id}\n"
+                f"─────────────────\n"
+                f"_{params['content']}_",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -143,17 +172,20 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             notes = await tasks_db.list_notes()
             if not notes:
-                await msg.reply_text("📝 Aucune note pour l'instant.")
+                await msg.reply_text("📝 *Notes*\n─────────────────\n_Aucune note pour l'instant._", parse_mode="Markdown")
             else:
-                lines = "\n".join(f"• #{n['id']} {n['content']}" for n in notes)
-                await msg.reply_text(f"📝 *Tes notes :*\n{lines}", parse_mode="Markdown")
+                lines = [f"  `#{n['id']}`  {n['content']}" for n in notes]
+                await msg.reply_text(
+                    f"📝 *Tes notes* ({len(notes)})\n─────────────────\n" + "\n".join(lines),
+                    parse_mode="Markdown",
+                )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible de lire les notes : {e}")
 
     elif name == "weather":
         try:
             w = await weather_svc.get_weather(params.get("city"))
-            await msg.reply_text(w)
+            await msg.reply_text(f"🌤 *Météo*\n─────────────────\n{w}", parse_mode="Markdown")
         except Exception as e:
             await msg.reply_text(f"❌ Météo indisponible : {e}")
 
@@ -161,18 +193,18 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         await send_briefing(msg.chat_id, context)
 
     else:
-        await msg.reply_text(reply or "Je n'ai pas compris, peux-tu reformuler ?")
+        await msg.reply_text(reply or "Je n'ai pas compris, reformule ?")
 
 
 async def _send_calendar_error(msg, e: Exception):
-    err = str(e)
-    if "pas encore connecté" in err or "connecter_calendar" in err:
+    if "pas encore connecté" in str(e) or "connecter_calendar" in str(e):
         await msg.reply_text(
-            "📅 Google Calendar n'est pas connecté.\nClique sur le bouton pour le connecter :",
+            "📅 *Google Calendar non connecté*\n─────────────────\nClique ci-dessous pour le connecter :",
+            parse_mode="Markdown",
             reply_markup=_CALENDAR_ERROR_KEYBOARD,
         )
     else:
-        await msg.reply_text(f"❌ Erreur calendrier : {err}")
+        await msg.reply_text(f"❌ Erreur calendrier : {e}")
 
 
 async def send_briefing(chat_id: int, context):
@@ -182,7 +214,6 @@ async def send_briefing(chat_id: int, context):
     except Exception:
         events = []
     tasks = await tasks_db.list_tasks()
-
     text = generate_briefing_text(w, events, tasks, TIMEZONE)
     await context.bot.send_message(
         chat_id=chat_id,
