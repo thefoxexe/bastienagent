@@ -366,14 +366,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         await wait_msg.edit_text(
-            f"💸 *Dépense extraite automatiquement*\n"
-            f"─────────────────\n"
-            f"{_cat_emoji(result['category'])} {result['category']}\n"
-            f"💰 *{result['amount']:.2f} CHF*  ·  {result['date']}\n"
-            f"📝 _{data.get('description', '')}_"
-            f"{warning}\n"
-            f"─────────────────\n"
-            f"[📊 Google Sheet]({result['sheet_url']})",
+            f"💸 *Dépense extraite*\n"
+            f"{_cat_emoji(result['category'])} {result['category']} · *{result['amount']:.2f} CHF* · {result['date']}\n"
+            f"_{data.get('description', '')}_"
+            f"{warning}\n\n"
+            f"[Voir le sheet]({result['sheet_url']})",
             parse_mode="Markdown",
         )
     except Exception as e:

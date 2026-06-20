@@ -10,26 +10,28 @@ from services.claude_ai import generate_briefing_text
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Zurich")
 
 _CALENDAR_ERROR_KEYBOARD = InlineKeyboardMarkup([[
-    InlineKeyboardButton("🔗 Connecter Google Calendar", callback_data="connecter_calendar")
+    InlineKeyboardButton("🔗 Connecter Google", callback_data="connecter_calendar"),
 ]])
 
-_BRIEFING_KEYBOARD = InlineKeyboardMarkup([
-    [
-        InlineKeyboardButton("📅 Agenda", callback_data="agenda"),
-        InlineKeyboardButton("✅ Tâches", callback_data="taches"),
-        InlineKeyboardButton("📝 Notes", callback_data="notes"),
-    ]
-])
+_BRIEFING_KEYBOARD = InlineKeyboardMarkup([[
+    InlineKeyboardButton("📅 Agenda", callback_data="agenda"),
+    InlineKeyboardButton("✅ Tâches", callback_data="taches"),
+    InlineKeyboardButton("📝 Notes", callback_data="notes"),
+]])
 
 _SETTINGS_KEYBOARD = InlineKeyboardMarkup([[
-    InlineKeyboardButton("💰 Modifier le budget mensuel", callback_data="set_budget"),
+    InlineKeyboardButton("✏️ Modifier le budget", callback_data="set_budget"),
 ]])
 
-_OUTILS_KEYBOARD = InlineKeyboardMarkup([[
-    InlineKeyboardButton("📓 Journal", callback_data="outils_journal"),
-    InlineKeyboardButton("💡 Mes idées", callback_data="outils_ideas"),
-    InlineKeyboardButton("✍️ Rédiger", callback_data="outils_write"),
-]])
+_OUTILS_KEYBOARD = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("📓 Journal", callback_data="outils_journal"),
+        InlineKeyboardButton("💡 Mes idées", callback_data="outils_ideas"),
+    ],
+    [
+        InlineKeyboardButton("✍️ Rédiger un texte", callback_data="outils_write"),
+    ],
+])
 
 _MONTHS_FR = {
     1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
@@ -43,7 +45,7 @@ _CAT_EMOJIS = {
     "loisirs": "🎮", "sortie": "🎉", "cinéma": "🎬",
     "santé": "💊", "pharmacie": "💊", "médecin": "🏥",
     "shopping": "👕", "vêtements": "👕",
-    "abonnement": "📱",
+    "abonnement": "📱", "abonnements": "📱",
     "logement": "🏠", "loyer": "🏠",
     "formation": "🎓",
 }
@@ -59,14 +61,12 @@ def _cat_emoji(category: str) -> str:
 
 def get_expense_keyboard(active: str = "month") -> InlineKeyboardMarkup:
     def btn(label, period):
-        check = " ✓" if period == active else ""
-        return InlineKeyboardButton(f"{label}{check}", callback_data=f"exp_{period}")
-    return InlineKeyboardMarkup([[
-        btn("📅 Jour", "today"),
-        btn("📆 Semaine", "week"),
-        btn("🗓 Mois", "month"),
-        btn("📊 Année", "year"),
-    ]])
+        mark = " ✓" if period == active else ""
+        return InlineKeyboardButton(f"{label}{mark}", callback_data=f"exp_{period}")
+    return InlineKeyboardMarkup([
+        [btn("Jour", "today"), btn("Semaine", "week")],
+        [btn("Mois", "month"), btn("Année", "year")],
+    ])
 
 
 def format_expense_text(summary: dict) -> str:
@@ -79,10 +79,10 @@ def format_expense_text(summary: dict) -> str:
     label = period_labels.get(summary["period"], "ce mois")
 
     if summary["count"] == 0:
-        return f"💰 *Dépenses — {label}*\n─────────────────\n_Aucune dépense enregistrée._"
+        return f"💰 *Dépenses — {label}*\n\n_Aucune dépense enregistrée._"
 
     lines = [
-        f"  {_cat_emoji(cat)} {cat:<14} *{amt:.2f} CHF*"
+        f"{_cat_emoji(cat)} {cat} · {amt:.2f} CHF"
         for cat, amt in sorted(summary["by_category"].items(), key=lambda x: -x[1])
     ]
 
@@ -91,27 +91,21 @@ def format_expense_text(summary: dict) -> str:
     if budget and summary["period"] == "month":
         pct = (summary["total"] / budget) * 100
         if pct >= 100:
-            icon = "🔴"
-            status = "DÉPASSÉ !"
+            icon, status = "🔴", "Budget dépassé !"
         elif pct >= 90:
-            icon = "🚨"
-            status = "Attention !"
+            icon, status = "🚨", "Attention !"
         elif pct >= 70:
-            icon = "⚠️"
-            status = "Approche du budget"
+            icon, status = "⚠️", "Approche du budget"
         else:
-            icon = "✅"
-            status = f"{100 - pct:.0f}% restant"
-        budget_line = f"\n{icon} Budget : *{summary['total']:.2f}* / {budget:.0f} CHF — _{status}_"
+            icon, status = "✅", f"{100 - pct:.0f}% restant"
+        budget_line = f"\n\n{icon} *{summary['total']:.0f} / {budget:.0f} CHF* — _{status}_"
 
     return (
         f"💰 *Dépenses — {label}*\n"
-        f"─────────────────\n"
-        f"Total : *{summary['total']:.2f} CHF*  ({summary['count']} dépenses)\n"
-        f"─────────────────\n"
+        f"Total *{summary['total']:.2f} CHF* · {summary['count']} opération{'s' if summary['count'] > 1 else ''}\n\n"
         + "\n".join(lines)
         + budget_line
-        + f"\n─────────────────\n[📊 Google Sheet]({summary['sheet_url']})"
+        + f"\n\n[📊 Voir le sheet]({summary['sheet_url']})"
     )
 
 
@@ -144,7 +138,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
             tz = pytz.timezone(TIMEZONE)
             if not events:
-                text = f"📅 *{title}*\n─────────────────\n_Rien de prévu !_ 🎉"
+                text = f"📅 *{title}*\n\n_Rien de prévu — journée libre !_ 🎉"
             else:
                 lines = []
                 for e in events:
@@ -156,9 +150,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                             time_str = dt.strftime("%H:%M")
                         except Exception:
                             time_str = "?"
-                    loc = f"\n    📍 _{e['location']}_" if e["location"] else ""
-                    lines.append(f"`{time_str}`  {e['title']}{loc}")
-                text = f"📅 *{title}*\n─────────────────\n" + "\n".join(lines)
+                    loc = f" · 📍_{e['location']}_" if e["location"] else ""
+                    lines.append(f"*{time_str}*  {e['title']}{loc}")
+                text = f"📅 *{title}*\n\n" + "\n".join(lines)
             await msg.reply_text(text, parse_mode="Markdown")
         except Exception as e:
             await _send_calendar_error(msg, e)
@@ -180,12 +174,12 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             date_str = start_dt.strftime("%d/%m/%Y")
             time_str = start_dt.strftime("%H:%M")
             link = result.get("link", "")
-            link_line = f"\n[Ouvrir dans Calendar]({link})" if link else ""
+            link_part = f"\n[Voir dans Google Calendar]({link})" if link else ""
             await msg.reply_text(
-                f"✅ *Événement ajouté au calendrier*\n"
-                f"─────────────────\n"
-                f"📌 {result['title']}\n"
-                f"🗓 {date_str} à {time_str}{link_line}",
+                f"✅ *Ajouté au calendrier*\n"
+                f"📌 *{result['title']}*\n"
+                f"🗓 {date_str} à {time_str}"
+                f"{link_part}",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -194,10 +188,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
     elif name == "calendar_delete":
         try:
             ok = google_calendar.delete_event(params.get("event_id", ""))
-            if ok:
-                await msg.reply_text("🗑 *Événement supprimé.*", parse_mode="Markdown")
-            else:
-                await msg.reply_text("❌ Événement introuvable.")
+            await msg.reply_text("🗑 Événement supprimé." if ok else "❌ Événement introuvable.")
         except Exception as e:
             await _send_calendar_error(msg, e)
 
@@ -205,9 +196,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             google_tasks.add_task(params["title"], params.get("due_iso"))
             await msg.reply_text(
-                f"✅ *Tâche ajoutée dans Google Tasks*\n"
-                f"─────────────────\n"
-                f"📋 {params['title']}",
+                f"✅ *Tâche ajoutée*\n{params['title']}",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -217,14 +206,11 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             tasks = google_tasks.list_tasks()
             if not tasks:
-                await msg.reply_text(
-                    "✅ *Tâches en cours*\n─────────────────\n_Aucune tâche — tout est à jour !_ 🎉",
-                    parse_mode="Markdown",
-                )
+                await msg.reply_text("📋 *Tâches*\n\n_Aucune tâche — tout est à jour !_ 🎉", parse_mode="Markdown")
             else:
-                lines = [f"  `#{t['id']}`  {t['title']}" for t in tasks]
+                lines = [f"{t['id']}. {t['title']}" for t in tasks]
                 await msg.reply_text(
-                    f"📋 *Tâches en cours* ({len(tasks)})\n─────────────────\n" + "\n".join(lines),
+                    f"📋 *Tâches* · {len(tasks)} en cours\n\n" + "\n".join(lines),
                     parse_mode="Markdown",
                 )
         except Exception as e:
@@ -234,19 +220,18 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             ok = google_tasks.complete_task(int(params["task_id"]))
             if ok:
-                await msg.reply_text(f"✅ *Tâche #{params['task_id']} terminée !* 💪", parse_mode="Markdown")
+                await msg.reply_text(f"✅ Tâche #{params['task_id']} terminée 💪", parse_mode="Markdown")
             else:
-                await msg.reply_text(f"❌ Tâche #{params['task_id']} introuvable. Envoie /taches pour voir les numéros.")
+                await msg.reply_text(f"❌ Tâche #{params['task_id']} introuvable.")
         except Exception as e:
             await msg.reply_text(f"❌ Erreur : {e}")
 
     elif name == "task_delete":
         try:
             ok = google_tasks.delete_task(int(params["task_id"]))
-            if ok:
-                await msg.reply_text(f"🗑 Tâche #{params['task_id']} supprimée.", parse_mode="Markdown")
-            else:
-                await msg.reply_text(f"❌ Tâche #{params['task_id']} introuvable.")
+            await msg.reply_text(
+                f"🗑 Tâche #{params['task_id']} supprimée." if ok else f"❌ Tâche #{params['task_id']} introuvable."
+            )
         except Exception as e:
             await msg.reply_text(f"❌ Erreur : {e}")
 
@@ -254,21 +239,17 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             content = params["content"]
             google_tasks.add_note(content)
-
             doc_line = ""
             try:
                 from services.google_docs import create_note_doc
                 now = datetime.now(pytz.timezone(TIMEZONE))
                 title = f"Note — {now.strftime('%d/%m/%Y %H:%M')}"
                 doc = create_note_doc(title=title, content=content)
-                doc_line = f"\n─────────────────\n[📄 Ouvrir dans Google Docs]({doc['url']})"
+                doc_line = f"\n[Voir dans Docs]({doc['url']})"
             except Exception:
                 pass
-
             await msg.reply_text(
-                f"📝 *Note sauvegardée*\n"
-                f"─────────────────\n"
-                f"_{content}_"
+                f"📝 *Note sauvegardée*\n_{content}_"
                 f"{doc_line}",
                 parse_mode="Markdown",
             )
@@ -279,11 +260,11 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             notes = google_tasks.list_notes()
             if not notes:
-                await msg.reply_text("📝 *Notes*\n─────────────────\n_Aucune note pour l'instant._", parse_mode="Markdown")
+                await msg.reply_text("📝 *Notes*\n\n_Aucune note pour l'instant._", parse_mode="Markdown")
             else:
-                lines = [f"  `#{n['id']}`  {n['content']}" for n in notes]
+                lines = [f"{n['id']}. {n['content']}" for n in notes]
                 await msg.reply_text(
-                    f"📝 *Tes notes* ({len(notes)})\n─────────────────\n" + "\n".join(lines),
+                    f"📝 *Notes* · {len(notes)}\n\n" + "\n".join(lines),
                     parse_mode="Markdown",
                 )
         except Exception as e:
@@ -292,7 +273,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
     elif name == "weather":
         try:
             w = await weather_svc.get_weather(params.get("city"))
-            await msg.reply_text(f"🌤 *Météo*\n─────────────────\n{w}", parse_mode="Markdown")
+            await msg.reply_text(f"🌤 *Météo*\n\n{w}", parse_mode="Markdown")
         except Exception as e:
             await msg.reply_text(f"❌ Météo indisponible : {e}")
 
@@ -308,7 +289,6 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 description=params.get("description", ""),
                 date_iso=params.get("date_iso"),
             )
-            # Check budget after adding
             warning = ""
             try:
                 summary = google_sheets.get_summary("month")
@@ -316,19 +296,16 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 if budget:
                     pct = (summary["total"] / budget) * 100
                     if pct >= 100:
-                        warning = f"\n\n🔴 *Budget mensuel dépassé !*\n{summary['total']:.2f} / {budget:.0f} CHF ({pct:.0f}%)"
+                        warning = f"\n\n🔴 *Budget dépassé !* {summary['total']:.0f} / {budget:.0f} CHF"
                     elif pct >= 80:
-                        warning = f"\n\n⚠️ Budget à *{pct:.0f}%* — {summary['total']:.2f} / {budget:.0f} CHF"
+                        warning = f"\n\n⚠️ Budget à *{pct:.0f}%* — {summary['total']:.0f} / {budget:.0f} CHF"
             except Exception:
                 pass
             await msg.reply_text(
                 f"💸 *Dépense enregistrée*\n"
-                f"─────────────────\n"
-                f"{_cat_emoji(result['category'])} {result['category']}\n"
-                f"💰 *{result['amount']:.2f} CHF*  ·  {result['date']}"
-                f"{warning}\n"
-                f"─────────────────\n"
-                f"[📊 Google Sheet]({result['sheet_url']})",
+                f"{_cat_emoji(result['category'])} {result['category']} · *{result['amount']:.2f} CHF* · {result['date']}"
+                f"{warning}\n\n"
+                f"[Voir le sheet]({result['sheet_url']})",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -353,9 +330,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             budget = google_sheets.get_budget()
             budget_str = f"*{budget:.0f} CHF*" if budget else "_Non défini_"
             await msg.reply_text(
-                f"⚙️ *Paramètres*\n"
-                f"─────────────────\n"
-                f"💰 Budget mensuel : {budget_str}",
+                f"⚙️ *Paramètres*\n\n💰 Budget mensuel : {budget_str}",
                 parse_mode="Markdown",
                 reply_markup=_SETTINGS_KEYBOARD,
             )
@@ -371,9 +346,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 params["to_currency"],
             )
             await msg.reply_text(
-                f"💱 *Conversion de devises*\n"
-                f"─────────────────\n"
-                f"*{res['amount']:.2f} {res['from_currency']}* = *{res['result']:.2f} {res['to_currency']}*\n"
+                f"💱 *{res['amount']:.2f} {res['from_currency']} → {res['result']:.2f} {res['to_currency']}*\n"
                 f"_{res['from_name']} → {res['to_name']}_\n"
                 f"Taux : 1 {res['from_currency']} = {res['rate']:.4f} {res['to_currency']}",
                 parse_mode="Markdown",
@@ -392,10 +365,8 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             preview = content[:200] + ("..." if len(content) > 200 else "")
             await msg.reply_text(
                 f"📓 *Journal — {result['date']}*\n"
-                f"─────────────────\n"
-                f"_{preview}_\n"
-                f"─────────────────\n"
-                f"[📖 Ouvrir le journal]({result['url']})",
+                f"_{preview}_\n\n"
+                f"[Ouvrir le journal]({result['url']})",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -405,9 +376,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             google_tasks.add_idea(params["content"])
             await msg.reply_text(
-                f"💡 *Idée sauvegardée !*\n"
-                f"─────────────────\n"
-                f"_{params['content']}_",
+                f"💡 *Idée notée*\n_{params['content']}_",
                 parse_mode="Markdown",
             )
         except Exception as e:
@@ -417,14 +386,11 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             ideas = google_tasks.list_ideas()
             if not ideas:
-                await msg.reply_text(
-                    "💡 *Idées*\n─────────────────\n_Aucune idée pour l'instant._",
-                    parse_mode="Markdown",
-                )
+                await msg.reply_text("💡 *Idées*\n\n_Aucune idée pour l'instant._", parse_mode="Markdown")
             else:
-                lines = [f"  `#{i['id']}`  {i['content']}" for i in ideas]
+                lines = [f"{i['id']}. {i['content']}" for i in ideas]
                 await msg.reply_text(
-                    f"💡 *Tes idées* ({len(ideas)})\n─────────────────\n" + "\n".join(lines),
+                    f"💡 *Idées* · {len(ideas)}\n\n" + "\n".join(lines),
                     parse_mode="Markdown",
                 )
         except Exception as e:
@@ -433,9 +399,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
     elif name == "write_assist":
         write_type = params.get("type", "texte")
         await msg.reply_text(
-            f"✍️ *Rédaction — {write_type}*\n"
-            f"─────────────────\n"
-            f"{reply}",
+            f"✍️ *{write_type.capitalize()}*\n\n{reply}",
             parse_mode="Markdown",
         )
 
@@ -446,7 +410,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 async def _send_calendar_error(msg, e: Exception):
     if "pas encore connecté" in str(e) or "connecter_calendar" in str(e):
         await msg.reply_text(
-            "📅 *Google Calendar non connecté*\n─────────────────\nClique ci-dessous pour le connecter :",
+            "❌ *Google Calendar non connecté*\n_Clique ci-dessous pour autoriser l'accès._",
             parse_mode="Markdown",
             reply_markup=_CALENDAR_ERROR_KEYBOARD,
         )

@@ -179,31 +179,28 @@ def generate_briefing_text(
                     time_str = dt.strftime("%H:%M")
                 except Exception:
                     time_str = ""
-            loc = f"  📍 _{e['location']}_" if e["location"] else ""
-            event_lines.append(f"  `{time_str}`  {e['title']}{loc}")
+            loc = f" · 📍_{e['location']}_" if e["location"] else ""
+            event_lines.append(f"*{time_str}*  {e['title']}{loc}")
         events_block = "\n".join(event_lines)
     else:
-        events_block = "  _Rien de prévu — journée libre !_"
+        events_block = "_Rien de prévu — journée libre !_ 🎉"
 
     # Tâches
     if tasks:
-        task_lines = [f"  ◦ {t['title']}" for t in tasks[:5]]
+        task_lines = [f"· {t['title']}" for t in tasks[:5]]
         if len(tasks) > 5:
-            task_lines.append(f"  _... et {len(tasks) - 5} autres_")
+            task_lines.append(f"_... et {len(tasks) - 5} autres_")
         tasks_block = "\n".join(task_lines)
     else:
-        tasks_block = "  _Aucune tâche — tout est à jour !_ 🎉"
+        tasks_block = "_Tout est à jour !_ 🎉"
 
-    sep = "─────────────────"
+    icon = "🌅" if now.hour < 12 else "🌇" if now.hour < 18 else "🌙"
 
     return (
-        f"{'🌅' if now.hour < 12 else '🌇' if now.hour < 18 else '🌙'} *{greeting}, Bastien !*\n"
-        f"📅 {date_str}\n"
-        f"{sep}\n"
-        f"🌤 *Météo*\n  {weather}\n"
-        f"{sep}\n"
-        f"📆 *Agenda du jour*\n{events_block}\n"
-        f"{sep}\n"
+        f"{icon} *{greeting}, Bastien !*\n"
+        f"_{date_str}_\n\n"
+        f"🌤 *Météo*\n{weather}\n\n"
+        f"📆 *Agenda*\n{events_block}\n\n"
         f"✅ *Tâches*\n{tasks_block}"
     )
 
