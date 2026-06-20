@@ -2,8 +2,10 @@ import asyncio
 import os
 import json
 import logging
+import pytz
 from aiohttp import web
 from dotenv import load_dotenv
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
@@ -18,6 +20,10 @@ logger = logging.getLogger(__name__)
 ALLOWED_USER_ID = int(os.getenv("TELEGRAM_USER_ID", "0"))
 PORT = int(os.getenv("PORT", "8080"))
 _telegram_app = None
+
+_JOURNAL_REMINDER_KEYBOARD = InlineKeyboardMarkup([[
+    InlineKeyboardButton("📓 Écrire mon journal", callback_data="outils_journal"),
+]])
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
@@ -246,6 +252,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Erreur : {e}", exc_info=True)
         await update.message.reply_text(f"⚠️ Erreur : {e}")
+
+
+async def send_journal_reminder():
+    if _telegram_app and ALLOWED_USER_ID:
+        try:
+            await _telegram_app.bot.send_message(
+                chat_id=ALLOWED_USER_ID,
+                text="📓 *Journal de bord — 21h*\nPrends 2 minutes pour noter ta journée ✍️",
+                parse_mode="Markdown",
+                reply_markup=_JOURNAL_REMINDER_KEYBOARD,
+            )
+        except Exception as e:
+            logger.error(f"Erreur rappel journal : {e}")
 
 
 async def _set_waiting(context: ContextTypes.DEFAULT_TYPE, state: str, chat_id: int, text: str) -> None:
@@ -666,6 +685,12 @@ async def _run():
             logger.info("🔄 Mode polling (local)")
 
         logger.info("🤖 Bastien Agent opérationnel !")
+
+        # Rappel journal quotidien à 21h
+        scheduler = AsyncIOScheduler(timezone=pytz.timezone("Europe/Zurich"))
+        scheduler.add_job(send_journal_reminder, "cron", hour=21, minute=0)
+        scheduler.start()
+        logger.info("⏰ Rappel journal programmé à 21h00")
 
         # Envoie le clavier permanent dès le démarrage
         if ALLOWED_USER_ID:

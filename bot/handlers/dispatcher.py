@@ -383,17 +383,18 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "journal_add":
         try:
-            from services.google_docs import create_note_doc
-            now = datetime.now(pytz.timezone(TIMEZONE))
-            title = f"Journal — {now.day} {_MONTHS_FR[now.month]} {now.year} à {now.strftime('%H:%M')}"
-            doc = create_note_doc(title=title, content=params["content"])
-            preview = params["content"][:200] + ("..." if len(params["content"]) > 200 else "")
+            from services.google_docs import append_journal_entry
+            from services.claude_ai import generate_summary
+            content = params["content"]
+            summary = generate_summary(content) if len(content) > 300 else None
+            result = append_journal_entry(content=content, summary=summary)
+            preview = content[:200] + ("..." if len(content) > 200 else "")
             await msg.reply_text(
-                f"📓 *Entrée de journal sauvegardée*\n"
+                f"📓 *Journal — {result['date']}*\n"
                 f"─────────────────\n"
                 f"_{preview}_\n"
                 f"─────────────────\n"
-                f"[📄 Ouvrir dans Google Docs]({doc['url']})",
+                f"[📖 Ouvrir le journal]({result['url']})",
                 parse_mode="Markdown",
             )
         except Exception as e:
