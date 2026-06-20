@@ -138,6 +138,9 @@ def parse_receipt(image_bytes: bytes) -> dict | None:
         return json.loads(raw)
     except json.JSONDecodeError:
         return None
+
+
+def generate_briefing_text(
     weather: str,
     events: list[dict],
     tasks: list[dict],
