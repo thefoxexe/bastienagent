@@ -33,6 +33,14 @@ _OUTILS_KEYBOARD = InlineKeyboardMarkup([
     ],
 ])
 
+_CALENDAR_SHORTCUT = InlineKeyboardMarkup([[
+    InlineKeyboardButton("📅 Ouvrir Google Calendar", url="https://calendar.google.com/calendar/r"),
+]])
+
+_TASKS_SHORTCUT = InlineKeyboardMarkup([[
+    InlineKeyboardButton("✅ Ouvrir Google Tasks", url="https://tasks.google.com/tasks/"),
+]])
+
 _MONTHS_FR = {
     1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
     7: "juillet", 8: "août", 9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre",
@@ -153,7 +161,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                     loc = f" · 📍_{e['location']}_" if e["location"] else ""
                     lines.append(f"*{time_str}*  {e['title']}{loc}")
                 text = f"📅 *{title}*\n\n" + "\n".join(lines)
-            await msg.reply_text(text, parse_mode="Markdown")
+            await msg.reply_text(text, parse_mode="Markdown", reply_markup=_CALENDAR_SHORTCUT)
         except Exception as e:
             await _send_calendar_error(msg, e)
 
@@ -181,6 +189,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 f"🗓 {date_str} à {time_str}"
                 f"{link_part}",
                 parse_mode="Markdown",
+                reply_markup=_CALENDAR_SHORTCUT,
             )
         except Exception as e:
             await _send_calendar_error(msg, e)
@@ -198,6 +207,7 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             await msg.reply_text(
                 f"✅ *Tâche ajoutée*\n{params['title']}",
                 parse_mode="Markdown",
+                reply_markup=_TASKS_SHORTCUT,
             )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible d'ajouter la tâche : {e}")
@@ -206,12 +216,13 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             tasks = google_tasks.list_tasks()
             if not tasks:
-                await msg.reply_text("📋 *Tâches*\n\n_Aucune tâche — tout est à jour !_ 🎉", parse_mode="Markdown")
+                await msg.reply_text("📋 *Tâches*\n\n_Aucune tâche — tout est à jour !_ 🎉", parse_mode="Markdown", reply_markup=_TASKS_SHORTCUT)
             else:
                 lines = [f"{t['id']}. {t['title']}" for t in tasks]
                 await msg.reply_text(
                     f"📋 *Tâches* · {len(tasks)} en cours\n\n" + "\n".join(lines),
                     parse_mode="Markdown",
+                    reply_markup=_TASKS_SHORTCUT,
                 )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible de lire les tâches : {e}")
