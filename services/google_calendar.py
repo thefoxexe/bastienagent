@@ -49,7 +49,10 @@ def _get_service():
 
     if not creds.valid:
         if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception:
+                raise RuntimeError("Token Google révoqué. Envoie /connecter_calendar pour te reconnecter.")
             if not token_json_env and os.path.exists(TOKEN_PATH):
                 with open(TOKEN_PATH, "w") as f:
                     f.write(creds.to_json())

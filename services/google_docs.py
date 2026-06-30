@@ -57,7 +57,10 @@ def _get_credentials() -> Credentials:
         raise RuntimeError("Google pas encore connecté. Envoie /connecter_calendar")
     if not creds.valid:
         if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception:
+                raise RuntimeError("Token Google révoqué. Envoie /connecter_calendar pour te reconnecter.")
         else:
             raise RuntimeError("Token expiré. Envoie /connecter_calendar")
     return creds

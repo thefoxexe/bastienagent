@@ -56,7 +56,10 @@ def _get_service():
 
     if not creds.valid:
         if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception:
+                raise RuntimeError("Token Google révoqué. Envoie /connecter_calendar pour te reconnecter.")
         else:
             raise RuntimeError("Token Google expiré. Envoie /connecter_calendar")
 
