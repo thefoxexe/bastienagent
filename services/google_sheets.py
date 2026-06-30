@@ -15,6 +15,16 @@ SCOPES = [
 TOKEN_PATH = "google_token.json"
 SHEET_TITLE = "Dépenses Bastien"
 
+
+def _persist_refreshed_token(creds) -> None:
+    try:
+        token_data = json.loads(creds.to_json())
+        os.environ["GOOGLE_TOKEN_JSON"] = json.dumps(token_data)
+        with open(TOKEN_PATH, "w") as f:
+            json.dump(token_data, f)
+    except Exception:
+        pass
+
 _spreadsheet_id: Optional[str] = None
 _sheet_url: Optional[str] = None
 
@@ -52,6 +62,7 @@ def _get_credentials() -> Credentials:
                 creds.refresh(Request())
             except Exception:
                 raise RuntimeError("Token Google révoqué. Envoie /connecter_calendar pour te reconnecter.")
+            _persist_refreshed_token(creds)
         else:
             raise RuntimeError("Token expiré. Envoie /connecter_calendar")
     return creds

@@ -15,6 +15,17 @@ SCOPES = [
 ]
 TOKEN_PATH = "google_token.json"
 
+
+def _persist_refreshed_token(creds) -> None:
+    try:
+        token_data = json.loads(creds.to_json())
+        os.environ["GOOGLE_TOKEN_JSON"] = json.dumps(token_data)
+        with open(TOKEN_PATH, "w") as f:
+            json.dump(token_data, f)
+    except Exception:
+        pass
+
+
 _NOTES_LIST_TITLE = "Notes Bastien"
 _notes_list_id: Optional[str] = None
 
@@ -60,6 +71,7 @@ def _get_service():
                 creds.refresh(Request())
             except Exception:
                 raise RuntimeError("Token Google révoqué. Envoie /connecter_calendar pour te reconnecter.")
+            _persist_refreshed_token(creds)
         else:
             raise RuntimeError("Token Google expiré. Envoie /connecter_calendar")
 

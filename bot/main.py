@@ -585,19 +585,24 @@ async def oauth_callback(request: web.Request) -> web.Response:
         }
         with open("google_token.json", "w") as f:
             json.dump(token_data, f)
+        token_json_str = json.dumps(token_data)
+        # Met à jour l'env var en mémoire → fonctionne immédiatement sans redémarrer
+        os.environ["GOOGLE_TOKEN_JSON"] = token_json_str
         if _telegram_app and ALLOWED_USER_ID:
-            token_json_str = json.dumps(token_data)
             await _telegram_app.bot.send_message(
                 chat_id=ALLOWED_USER_ID,
                 text="✅ *Google Calendar connecté !*\n\n"
-                     "⚠️ *Action requise pour que ça reste connecté après redémarrage :*\n"
-                     "1. Va sur Render → ton service → *Environment*\n"
-                     "2. Ajoute une variable :\n"
-                     "   Nom : `GOOGLE_TOKEN_JSON`\n"
-                     "   Valeur : le JSON ci-dessous\n"
-                     "3. Clique *Save Changes*\n\n"
-                     f"`{token_json_str}`",
-                parse_mode="Markdown",
+                     "⚠️ *Pour que ça reste connecté après redémarrage de Render :*\n"
+                     "1\\. Va sur Render → ton service → *Environment*\n"
+                     "2\\. Variable `GOOGLE_TOKEN_JSON` → remplace la valeur par le JSON envoyé ci-dessous\n"
+                     "3\\. Clique *Save Changes* \\(ça redémarre le bot\\)\n\n"
+                     "📋 *Copie ce JSON exact dans Render :*",
+                parse_mode="MarkdownV2",
+            )
+            # Envoie le JSON en message brut séparé, sans aucun formatage pour éviter les coupures
+            await _telegram_app.bot.send_message(
+                chat_id=ALLOWED_USER_ID,
+                text=token_json_str,
             )
         return web.Response(
             text='<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
