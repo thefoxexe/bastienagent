@@ -289,24 +289,31 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wait_msg = await update.message.reply_text("🎙️ _Transcription en cours (message long)..._", parse_mode="Markdown")
     else:
         wait_msg = await update.message.reply_text("🎙️ _J'écoute..._", parse_mode="Markdown")
+    # Transcription
     try:
         text, _ = await _transcribe_voice(update, context)
-        if not text:
-            await wait_msg.edit_text("❌ Je n'ai pas pu comprendre. Parle plus fort ou réessaie.")
-            return
+    except Exception as e:
+        logger.error(f"Erreur transcription : {e}", exc_info=True)
+        await wait_msg.edit_text(f"⚠️ Erreur transcription : {e}")
+        return
 
-        await wait_msg.edit_text(f"🎤 {text}")
+    if not text:
+        await wait_msg.edit_text("❌ Je n'ai pas pu comprendre. Parle plus fort ou réessaie.")
+        return
 
+    await wait_msg.edit_text(f"🎤 {text}")
+
+    # Traitement du texte transcrit
+    try:
+        from bot.handlers.dispatcher import dispatch_all
         waiting = context.user_data.get("waiting_for")
         if waiting == "journal":
             context.user_data.pop("waiting_for", None)
             context.user_data.pop("waiting_message_id", None)
-            from bot.handlers.dispatcher import dispatch_all
             await dispatch_all([{"action": "journal_add", "params": {"content": text}, "reply": ""}], update, context)
         elif waiting == "idea":
             context.user_data.pop("waiting_for", None)
             context.user_data.pop("waiting_message_id", None)
-            from bot.handlers.dispatcher import dispatch_all
             await dispatch_all([{"action": "idea_add", "params": {"content": text}, "reply": ""}], update, context)
         elif waiting == "write_assist":
             context.user_data.pop("waiting_for", None)
@@ -315,8 +322,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await _process_text(text, update, context)
     except Exception as e:
-        logger.error(f"Erreur vocal : {e}", exc_info=True)
-        await wait_msg.edit_text(f"⚠️ Erreur transcription : {e}")
+        logger.error(f"Erreur dispatch vocal : {e}", exc_info=True)
+        await update.message.reply_text(f"⚠️ Erreur : {e}")
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):

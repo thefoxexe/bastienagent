@@ -129,7 +129,10 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
     msg = update.message
 
     if name == "chat":
-        await msg.reply_text(reply or "Je suis là !", parse_mode="Markdown")
+        try:
+            await msg.reply_text(reply or "Je suis là !", parse_mode="Markdown")
+        except Exception:
+            await msg.reply_text(reply or "Je suis là !")
 
     elif name in ("calendar_read_today", "calendar_read_week", "calendar_read_days"):
         try:
@@ -417,10 +420,13 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
 
     elif name == "write_assist":
         write_type = params.get("type", "texte")
-        await msg.reply_text(
-            f"✍️ *{write_type.capitalize()}*\n\n{reply}",
-            parse_mode="Markdown",
-        )
+        try:
+            await msg.reply_text(
+                f"✍️ *{write_type.capitalize()}*\n\n{reply}",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await msg.reply_text(f"✍️ {write_type.capitalize()}\n\n{reply}")
 
     else:
         await msg.reply_text(reply or "Je n'ai pas compris, reformule ?")
