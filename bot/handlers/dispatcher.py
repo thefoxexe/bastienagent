@@ -259,8 +259,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
                 doc_line = f"\n[Voir dans Docs]({doc['url']})"
             except Exception:
                 pass
+            safe_content = content.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
             await msg.reply_text(
-                f"📝 *Note sauvegardée*\n_{content}_"
+                f"📝 *Note sauvegardée*\n_{safe_content}_"
                 f"{doc_line}",
                 parse_mode="Markdown",
             )
@@ -375,10 +376,11 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             result = append_journal_entry(content=content, summary=summary)
             # Affiche le résumé si dispo, sinon les 180 premiers caractères
             body = summary if summary else (content[:180] + ("…" if len(content) > 180 else ""))
+            safe_body = body.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
             await msg.reply_text(
                 f"📓 *Journal · {result['date']}*\n"
                 f"_Sauvegardé à {result['time']}_\n\n"
-                f"_{body}_",
+                f"_{safe_body}_",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🗑 Annuler cette entrée", callback_data="journal_delete_last"),
@@ -391,8 +393,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
     elif name == "idea_add":
         try:
             google_tasks.add_idea(params["content"])
+            safe_idea = params['content'].replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
             await msg.reply_text(
-                f"💡 *Idée notée*\n_{params['content']}_",
+                f"💡 *Idée notée*\n_{safe_idea}_",
                 parse_mode="Markdown",
             )
         except Exception as e:

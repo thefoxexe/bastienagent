@@ -295,7 +295,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await wait_msg.edit_text("❌ Je n'ai pas pu comprendre. Parle plus fort ou réessaie.")
             return
 
-        await wait_msg.edit_text(f"🎤 _{text}_", parse_mode="Markdown")
+        await wait_msg.edit_text(f"🎤 {text}")
 
         waiting = context.user_data.get("waiting_for")
         if waiting == "journal":
