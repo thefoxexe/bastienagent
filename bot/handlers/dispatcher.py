@@ -373,12 +373,17 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             content = clean_journal_text(raw)
             summary = generate_summary(content) if len(content) > 300 else None
             result = append_journal_entry(content=content, summary=summary)
-            preview = content[:200] + ("..." if len(content) > 200 else "")
+            # Affiche le résumé si dispo, sinon les 180 premiers caractères
+            body = summary if summary else (content[:180] + ("…" if len(content) > 180 else ""))
             await msg.reply_text(
-                f"📓 *Journal — {result['date']}*\n"
-                f"_{preview}_\n\n"
-                f"[Ouvrir le journal]({result['url']})",
+                f"📓 *Journal · {result['date']}*\n"
+                f"_Sauvegardé à {result['time']}_\n\n"
+                f"_{body}_",
                 parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🗑 Annuler cette entrée", callback_data="journal_delete_last"),
+                    InlineKeyboardButton("📖 Ouvrir", url=result['url']),
+                ]]),
             )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible de sauvegarder le journal : {e}")

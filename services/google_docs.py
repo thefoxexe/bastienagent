@@ -17,6 +17,22 @@ SCOPES = [
 ]
 TOKEN_PATH = "google_token.json"
 FOLDER_NAME = "Note Bastien Agent"
+JOURNAL_DOC_NAME = "Journal Bastien"
+
+# Marqueur unique qui délimite chaque entrée — utilisé pour la suppression
+_ENTRY_MARKER = "\n\n◆" + "─" * 38 + "◆\n"
+
+_DAYS_FR = {
+    "Monday": "Lundi", "Tuesday": "Mardi", "Wednesday": "Mercredi",
+    "Thursday": "Jeudi", "Friday": "Vendredi", "Saturday": "Samedi", "Sunday": "Dimanche",
+}
+_MONTHS_FR = {
+    1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
+    7: "juillet", 8: "août", 9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre",
+}
+
+_folder_id: Optional[str] = None
+_journal_doc_id: Optional[str] = None
 
 
 def _persist_refreshed_token(creds) -> None:
@@ -27,15 +43,6 @@ def _persist_refreshed_token(creds) -> None:
             json.dump(token_data, f)
     except Exception:
         pass
-JOURNAL_DOC_NAME = "Journal Bastien"
-
-_folder_id: Optional[str] = None
-_journal_doc_id: Optional[str] = None
-
-_MONTHS_FR = {
-    1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
-    7: "juillet", 8: "août", 9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre",
-}
 
 
 def _get_credentials() -> Credentials:
@@ -81,7 +88,6 @@ def _get_or_create_folder(drive_svc) -> str:
     global _folder_id
     if _folder_id:
         return _folder_id
-
     try:
         results = drive_svc.files().list(
             q=f"name='{FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
@@ -93,7 +99,6 @@ def _get_or_create_folder(drive_svc) -> str:
             return _folder_id
     except Exception:
         pass
-
     folder = drive_svc.files().create(
         body={"name": FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder"},
         fields="id",
@@ -106,7 +111,6 @@ def _get_or_create_journal_doc(drive_svc) -> str:
     global _journal_doc_id
     if _journal_doc_id:
         return _journal_doc_id
-
     try:
         results = drive_svc.files().list(
             q=f"name='{JOURNAL_DOC_NAME}' and mimeType='application/vnd.google-apps.document' and trashed=false",
@@ -118,9 +122,8 @@ def _get_or_create_journal_doc(drive_svc) -> str:
             return _journal_doc_id
     except Exception:
         pass
-
     folder_id = _get_or_create_folder(drive_svc)
-    header = f"JOURNAL DE BORD — BASTIEN\n{'═' * 40}\n"
+    header = "JOURNAL DE BORD — BASTIEN\n"
     media = MediaInMemoryUpload(header.encode("utf-8"), mimetype="text/plain", resumable=False)
     file = drive_svc.files().create(
         body={
@@ -135,13 +138,7 @@ def _get_or_create_journal_doc(drive_svc) -> str:
     return _journal_doc_id
 
 
-def append_journal_entry(content: str, summary: str = None) -> dict:
-    """Ajoute une entrée datée au journal de bord unique."""
-    creds = _get_credentials()
-    drive_svc = build("drive", "v3", credentials=creds)
-    doc_id = _get_or_create_journal_doc(drive_svc)
-
-    # Exporte le contenu actuel du doc
+def _export_doc_text(drive_svc, doc_id: str) -> str:
     try:
         request = drive_svc.files().export_media(fileId=doc_id, mimeType="text/plain")
         buf = io.BytesIO()
@@ -149,56 +146,75 @@ def append_journal_entry(content: str, summary: str = None) -> dict:
         done = False
         while not done:
             _, done = downloader.next_chunk()
-        existing_text = buf.getvalue().decode("utf-8").strip()
+        return buf.getvalue().decode("utf-8").strip()
     except Exception:
-        existing_text = f"JOURNAL DE BORD — BASTIEN\n{'═' * 40}"
+        return "JOURNAL DE BORD — BASTIEN"
+
+
+def _upload_doc_text(drive_svc, doc_id: str, content: str) -> None:
+    media = MediaInMemoryUpload(content.encode("utf-8"), mimetype="text/plain", resumable=False)
+    drive_svc.files().update(fileId=doc_id, media_body=media).execute()
+
+
+def append_journal_entry(content: str, summary: str = None) -> dict:
+    """Ajoute une entrée datée au journal de bord unique."""
+    creds = _get_credentials()
+    drive_svc = build("drive", "v3", credentials=creds)
+    doc_id = _get_or_create_journal_doc(drive_svc)
+
+    existing_text = _export_doc_text(drive_svc, doc_id)
 
     tz = pytz.timezone(os.getenv("TIMEZONE", "Europe/Zurich"))
     now = datetime.now(tz)
+    day_name = _DAYS_FR.get(now.strftime("%A"), "")
     date_str = f"{now.day} {_MONTHS_FR[now.month]} {now.year}"
     time_str = now.strftime("%H:%M")
 
-    sep = "═" * 40
-    entry = f"\n\n{sep}\n📅  {date_str}  —  {time_str}\n{'─' * 40}\n\n{content.strip()}"
+    # Format propre : marqueur ◆───◆ + date en header + contenu + résumé optionnel
+    header_line = f"{day_name} {date_str}  ·  {time_str}"
+    entry = _ENTRY_MARKER + header_line + "\n\n" + content.strip()
     if summary:
-        entry += f"\n\n💡 Résumé :\n{summary.strip()}"
+        entry += f"\n\n▸ {summary.strip()}"
 
-    new_content = existing_text + entry
-
-    media = MediaInMemoryUpload(new_content.encode("utf-8"), mimetype="text/plain", resumable=False)
-    drive_svc.files().update(fileId=doc_id, media_body=media).execute()
+    _upload_doc_text(drive_svc, doc_id, existing_text + entry)
 
     return {
         "id": doc_id,
         "url": f"https://docs.google.com/document/d/{doc_id}",
         "date": date_str,
+        "time": time_str,
     }
 
 
+def delete_last_journal_entry() -> bool:
+    """Supprime la dernière entrée du journal. Retourne True si suppression réussie."""
+    creds = _get_credentials()
+    drive_svc = build("drive", "v3", credentials=creds)
+    doc_id = _get_or_create_journal_doc(drive_svc)
+
+    existing_text = _export_doc_text(drive_svc, doc_id)
+
+    idx = existing_text.rfind(_ENTRY_MARKER)
+    if idx == -1:
+        return False
+
+    new_content = existing_text[:idx].rstrip()
+    _upload_doc_text(drive_svc, doc_id, new_content)
+    return True
+
+
 def create_note_doc(title: str, content: str, summary: str = None) -> dict:
-    """Crée un Google Doc dans le dossier Note Bastien Agent.
-    Le doc contient le résumé en premier, puis le texte complet.
-    Utilise l'import Drive (pas besoin du scope documents).
-    """
+    """Crée un Google Doc dans le dossier Note Bastien Agent."""
     creds = _get_credentials()
     drive_svc = build("drive", "v3", credentials=creds)
     folder_id = _get_or_create_folder(drive_svc)
 
     if summary:
-        full_text = (
-            f"RÉSUMÉ\n\n{summary}\n\n"
-            f"{'─' * 40}\n\n"
-            f"RETRANSCRIPTION COMPLÈTE\n\n{content}"
-        )
+        full_text = f"RÉSUMÉ\n\n{summary}\n\n{'─' * 40}\n\nRETRANSCRIPTION COMPLÈTE\n\n{content}"
     else:
         full_text = content
 
-    media = MediaInMemoryUpload(
-        full_text.encode("utf-8"),
-        mimetype="text/plain",
-        resumable=False,
-    )
-
+    media = MediaInMemoryUpload(full_text.encode("utf-8"), mimetype="text/plain", resumable=False)
     file = drive_svc.files().create(
         body={
             "name": title,

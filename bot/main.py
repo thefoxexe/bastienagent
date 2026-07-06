@@ -486,6 +486,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _set_waiting(context, "budget", chat_id,
             "💰 *Quel est ton budget mensuel en CHF ?*\n_Envoie juste le montant (ex: 2000)_")
 
+    elif query.data == "journal_delete_last":
+        try:
+            from services.google_docs import delete_last_journal_entry
+            ok = delete_last_journal_entry()
+            if ok:
+                await query.message.edit_text(
+                    "🗑 *Entrée supprimée du journal.*",
+                    parse_mode="Markdown",
+                )
+            else:
+                await context.bot.send_message(chat_id, "❌ Aucune entrée à supprimer dans le journal.")
+        except Exception as e:
+            await context.bot.send_message(chat_id, f"❌ Erreur : {e}")
+
     elif query.data == "outils_journal":
         await _set_waiting(context, "journal", chat_id,
             "📓 _Raconte-moi ta journée ou ce que tu veux noter..._\n_(tu peux aussi envoyer un vocal)_")
