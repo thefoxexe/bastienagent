@@ -41,6 +41,11 @@ _TASKS_SHORTCUT = InlineKeyboardMarkup([[
     InlineKeyboardButton("✅ Ouvrir Google Tasks", url="https://tasks.google.com/tasks/"),
 ]])
 
+def _h(text: str) -> str:
+    """Échappe les caractères HTML pour l'affichage sécurisé dans parse_mode='HTML'."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 _MONTHS_FR = {
     1: "janvier", 2: "février", 3: "mars", 4: "avril", 5: "mai", 6: "juin",
     7: "juillet", 8: "août", 9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre",
@@ -253,20 +258,19 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
         try:
             content = params["content"]
             google_tasks.add_note(content)
-            doc_line = ""
+            doc_url = ""
             try:
                 from services.google_docs import create_note_doc
                 now = datetime.now(pytz.timezone(TIMEZONE))
                 title = f"Note — {now.strftime('%d/%m/%Y %H:%M')}"
                 doc = create_note_doc(title=title, content=content)
-                doc_line = f"\n[Voir dans Docs]({doc['url']})"
+                doc_url = doc['url']
             except Exception:
                 pass
-            safe_content = content.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+            doc_link = f'\n<a href="{doc_url}">Voir dans Docs</a>' if doc_url else ""
             await msg.reply_text(
-                f"📝 *Note sauvegardée*\n_{safe_content}_"
-                f"{doc_line}",
-                parse_mode="Markdown",
+                f"📝 <b>Note sauvegardée</b>\n<i>{_h(content)}</i>{doc_link}",
+                parse_mode="HTML",
             )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible de sauvegarder la note : {e}")
@@ -377,14 +381,12 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
             content = clean_journal_text(raw)
             summary = generate_summary(content) if len(content) > 300 else None
             result = append_journal_entry(content=content, summary=summary)
-            # Affiche le résumé si dispo, sinon les 180 premiers caractères
             body = summary if summary else (content[:180] + ("…" if len(content) > 180 else ""))
-            safe_body = body.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
             await msg.reply_text(
-                f"📓 *Journal · {result['date']}*\n"
-                f"_Sauvegardé à {result['time']}_\n\n"
-                f"_{safe_body}_",
-                parse_mode="Markdown",
+                f"📓 <b>Journal · {_h(result['date'])}</b>\n"
+                f"<i>Sauvegardé à {_h(result['time'])}</i>\n\n"
+                f"<i>{_h(body)}</i>",
+                parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🗑 Annuler cette entrée", callback_data="journal_delete_last"),
                     InlineKeyboardButton("📖 Ouvrir", url=result['url']),
@@ -396,10 +398,9 @@ async def dispatch(action: dict, update: Update, context: ContextTypes.DEFAULT_T
     elif name == "idea_add":
         try:
             google_tasks.add_idea(params["content"])
-            safe_idea = params['content'].replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
             await msg.reply_text(
-                f"💡 *Idée notée*\n_{safe_idea}_",
-                parse_mode="Markdown",
+                f"💡 <b>Idée notée</b>\n<i>{_h(params['content'])}</i>",
+                parse_mode="HTML",
             )
         except Exception as e:
             await msg.reply_text(f"❌ Impossible de sauvegarder l'idée : {e}")
