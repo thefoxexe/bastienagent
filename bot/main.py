@@ -138,9 +138,14 @@ async def cmd_connecter_calendar(update: Update, context: ContextTypes.DEFAULT_T
         "access_type": "offline",
         "prompt": "consent",
     })
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Connecter Google Calendar", url=auth_url)]])
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Connecter Google", url=auth_url)]])
     await update.message.reply_text(
-        "Clique sur le bouton → connecte-toi avec Google → reviens automatiquement ✅",
+        "Clique sur le bouton pour connecter Google.\n\n"
+        "⚠️ Si Google affiche un avertissement \"application non vérifiée\" :\n"
+        "→ clique sur <b>Paramètres avancés</b>\n"
+        "→ puis <b>Accéder à l'application</b>\n\n"
+        "Reviens ici après, tu recevras une confirmation.",
+        parse_mode="HTML",
         reply_markup=keyboard,
     )
 
@@ -549,8 +554,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from telegram import InlineKeyboardMarkup, InlineKeyboardButton
         await context.bot.send_message(
             chat_id,
-            "Clique pour connecter Google Calendar :",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Connecter", url=auth_url)]]),
+            "Clique pour connecter Google.\n\n"
+            "⚠️ Si Google affiche <b>\"application non vérifiée\"</b> :\n"
+            "→ <b>Paramètres avancés</b> → <b>Accéder à l'application</b>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Connecter Google", url=auth_url)]]),
         )
 
 
@@ -567,8 +575,16 @@ async def handle_telegram_webhook(request: web.Request) -> web.Response:
 async def oauth_callback(request: web.Request) -> web.Response:
     code = request.rel_url.query.get("code")
     error = request.rel_url.query.get("error")
+
     if error or not code:
-        return web.Response(text=f"❌ Erreur : {error or 'code manquant'}", content_type="text/html")
+        reason = error or "code manquant"
+        logger.error(f"OAuth refusé par Google : {reason}")
+        return web.Response(
+            content_type="text/html",
+            text=_html_page("❌ Connexion refusée", f"Google a refusé l'accès : <b>{reason}</b>.<br><br>Ferme cette page et réessaie depuis Telegram."),
+        )
+
+    # ── 1. Échange du code contre un token ─────────────────────────────────────
     try:
         from google_auth_oauthlib.flow import Flow
         base_url = _get_base_url()
@@ -591,50 +607,76 @@ async def oauth_callback(request: web.Request) -> web.Response:
         )
         flow.fetch_token(code=code)
         creds = flow.credentials
-        token_data = {
-            "token": creds.token,
-            "refresh_token": creds.refresh_token,
-            "token_uri": creds.token_uri,
-            "client_id": creds.client_id,
-            "client_secret": creds.client_secret,
-            "scopes": list(creds.scopes) if creds.scopes else [
-                "https://www.googleapis.com/auth/calendar",
-                "https://www.googleapis.com/auth/tasks",
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive.file",
-            ],
-        }
+    except Exception as e:
+        logger.error(f"Erreur OAuth (fetch_token) : {e}", exc_info=True)
+        return web.Response(
+            content_type="text/html",
+            text=_html_page("❌ Erreur OAuth", f"Impossible d'obtenir le token : <code>{e}</code><br><br>Ferme cette page et réessaie depuis Telegram."),
+        )
+
+    # ── 2. Sauvegarde du token (indépendant de la notif Telegram) ──────────────
+    token_data = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": list(creds.scopes) if creds.scopes else [
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/tasks",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.file",
+        ],
+    }
+    token_json_str = json.dumps(token_data)
+    try:
         with open("google_token.json", "w") as f:
             json.dump(token_data, f)
-        token_json_str = json.dumps(token_data)
-        # Met à jour l'env var en mémoire → fonctionne immédiatement sans redémarrer
-        os.environ["GOOGLE_TOKEN_JSON"] = token_json_str
-        if _telegram_app and ALLOWED_USER_ID:
+    except Exception:
+        pass
+    os.environ["GOOGLE_TOKEN_JSON"] = token_json_str
+
+    # ── 3. Notification Telegram (erreur ici n'annule pas la connexion) ─────────
+    if _telegram_app and ALLOWED_USER_ID:
+        try:
             await _telegram_app.bot.send_message(
                 chat_id=ALLOWED_USER_ID,
-                text="✅ *Google Calendar connecté !*\n\n"
-                     "⚠️ *Pour que ça reste connecté après redémarrage de Render :*\n"
-                     "1\\. Va sur Render → ton service → *Environment*\n"
-                     "2\\. Variable `GOOGLE_TOKEN_JSON` → remplace la valeur par le JSON envoyé ci-dessous\n"
-                     "3\\. Clique *Save Changes* \\(ça redémarre le bot\\)\n\n"
-                     "📋 *Copie ce JSON exact dans Render :*",
-                parse_mode="MarkdownV2",
+                text="✅ <b>Google connecté avec succès !</b>\n\n"
+                     "⚠️ <b>Action requise pour garder la connexion après un redémarrage Render :</b>\n"
+                     "1. Va sur Render → ton service → <b>Environment</b>\n"
+                     "2. Mets à jour la variable <code>GOOGLE_TOKEN_JSON</code> avec le JSON ci-dessous\n"
+                     "3. Clique <b>Save Changes</b>\n\n"
+                     "📋 <b>JSON à copier dans Render :</b>",
+                parse_mode="HTML",
             )
-            # Envoie le JSON en message brut séparé, sans aucun formatage pour éviter les coupures
             await _telegram_app.bot.send_message(
                 chat_id=ALLOWED_USER_ID,
                 text=token_json_str,
             )
-        return web.Response(
-            text='<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
-                 '<body style="font-family:sans-serif;text-align:center;padding:60px;background:#0f0f23;color:white;">'
-                 '<h1>✅ Google Calendar connecté !</h1><p>Ferme cette page et reviens sur Telegram.</p>'
-                 '</body></html>',
-            content_type="text/html",
-        )
-    except Exception as e:
-        logger.error(f"Erreur OAuth : {e}", exc_info=True)
-        return web.Response(text=f"❌ Erreur : {e}", content_type="text/html")
+        except Exception as tg_err:
+            logger.error(f"Erreur notif Telegram post-OAuth : {tg_err}")
+
+    return web.Response(
+        content_type="text/html",
+        text=_html_page(
+            "✅ Google connecté !",
+            "La connexion a réussi.<br>Ferme cette page et reviens sur Telegram.<br><br>"
+            "<small>Le bot est maintenant actif et prêt à utiliser ton calendrier.</small>"
+        ),
+    )
+
+
+def _html_page(title: str, body: str) -> str:
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<style>body{font-family:sans-serif;text-align:center;padding:60px 20px;'
+        'background:#0f0f23;color:white;max-width:500px;margin:auto}'
+        'h1{font-size:2em;margin-bottom:20px}p{line-height:1.6;color:#ccc}'
+        'code{background:#1a1a3e;padding:2px 6px;border-radius:4px;font-size:.9em}'
+        '</style></head>'
+        f'<body><h1>{title}</h1><p>{body}</p></body></html>'
+    )
 
 
 async def trigger_briefing(request: web.Request) -> web.Response:
